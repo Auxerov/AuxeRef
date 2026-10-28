@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Add to Blender Bridge</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      width: 280px;
+      margin: 0;
+      padding: 14px;
+      background: #2b2b2b;
+      color: #eaeaea;
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 15px;
+      color: #eb7814;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-box {
+      background: #1e1e1e;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 12px;
+      border: 1px solid #3c3c3c;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #888;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .online { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+    .offline { background: #e74c3c; }
+    .instructions {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #bbb;
+      margin-bottom: 12px;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      background: #eb7814;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover {
+      background: #ff8c2b;
+    }
+    .footer {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #777;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h2>
+    <img src="icons/icon16.png" alt="icon">
+    Add to Blender Bridge
+  </h2>
+
+  <div class="status-box">
+    <div class="status-row">
+      <span>Blender Status:</span>
+      <span id="status-text"><span class="indicator" id="status-ind"></span> Checking...</span>
+    </div>
+  </div>
+
+  <div class="instructions">
+    Right-click <b>any image</b> on Google Images or web pages and select:
+    <br><br>
+    <b>Add to Blender ➔</b>
+    <ul style="margin: 4px 0 0 0; padding-left: 18px;">
+      <li>Reference Image (Empty)</li>
+      <li>Image Plane (Mesh)</li>
+      <li>Active Material</li>
+    </ul>
+  </div>
+
+  <button id="btn-check">Check Blender Connection</button>
+
+  <div class="footer">
+    Bridge Port: 127.0.0.1:9981
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

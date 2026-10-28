@@ -4,13 +4,26 @@ Blender 5.0 ve 5.2 LTS için doğrudan Türkçe klavye kısayolu (`< / "`) ile B
 
 ---
 
+## ⚡ Otomatik Tarayıcı Algılama ve Hızlı Kurulum
+
+Eklenti Blender'a kurulup ilk kez etkinleştirildiğinde:
+1. İşletim sisteminizin varsayılan tarayıcısını otomatik olarak tespit eder (örn. **Thorium Browser**, **Google Chrome**, **Chromium**, **Mozilla Firefox**).
+2. Ekrana bir bildirim penceresi açarak eklentiyi varsayılan tarayıcınıza eklemek isteyip istemediğinizi sorar:
+   - **`[Install Extension to <Tarayıcınız>]`**
+3. **Tek Tıkla Kurulum:**
+   - **Chromium / Thorium / Chrome için:** Eklenti paketini doğrudan `~/.config/<tarayıcı>/External Extensions/` dizinine otomatik olarak kaydeder, eklenti klasör yolunu panonuza (clipboard) kopyalar ve tarayıcınızda rehber kurulum sayfasını açar.
+   - **Firefox için:** Tek tıkla indirip kurabileceğiniz `.xpi` paketini hazırlar ve kurulum sayfasını açar.
+   - Eklenti tercihleri (`Edit > Preferences > Add-ons > Web Image Search`) içinden istediğiniz zaman tarayıcıyı değiştirebilir veya kurulumu yenileyebilirsiniz.
+
+---
+
 ## 🚀 Hızlı Bakış ve İş Akışı
 
 1. **Blender'da Kısayola Basın:**
    - Türkçe Q klavyede **`ESC` tuşunun hemen altındaki `< / "`** tuşuna (veya Sol Shift yanındaki `< / >` tuşuna) basın.
    - Blender içinde arama kutusu açılır.
    - Aramak istediğiniz kelimeyi yazıp **Enter**'a basın.
-   - Varsayılan tarayıcınızda (Thorium / Chrome / Firefox) doğrudan **Google Görseller** açılır.
+   - Varsayılan tarayıcınızda doğrudan **Google Görseller** açılır.
 
 2. **Tarayıcıda Sağ Tıklayıp Sahneye Ekleyin:**
    - Google Görseller'de istediğiniz resmi bulun.
@@ -21,51 +34,19 @@ Blender 5.0 ve 5.2 LTS için doğrudan Türkçe klavye kısayolu (`< / "`) ile B
 
 ---
 
-## 🛠️ Kurulum Adımları
+## 📂 Dosya ve Paket Konumları
 
-### 1. Blender Eklentisi (Zaten Yüklendi)
-Eklenti dosyaları sisteminize kuruldu:
-- `~/.config/blender/5.0/scripts/addons/blender_web_search/`
-- `~/.config/blender/5.2/scripts/addons/blender_web_search/`
-
-Blender'ı açıp `Edit > Preferences > Add-ons` bölümünden **Web Image Search & Bridge** eklentisinin kutucuğunu işaretlemeniz yeterlidir. Eklenti açıldığında `http://127.0.0.1:9981` üzerinden güvenli yerel köprü sunucusu otomatik olarak çalışmaya başlar.
+- **Blender Eklenti Paketi:** [`blender_web_search.zip`](file:///home/auxerov/blender-image-search/blender_web_search.zip)
+- **Chrome / Thorium / Chromium Eklentisi:** [`add_to_blender_chrome.zip`](file:///home/auxerov/blender-image-search/add_to_blender_chrome.zip)
+- **Mozilla Firefox Eklentisi (.xpi):** [`add_to_blender_firefox.xpi`](file:///home/auxerov/blender-image-search/add_to_blender_firefox.xpi)
+- **Yerel Köprü Sunucusu:** `http://127.0.0.1:9981` (veya `9982..9985`)
 
 ---
 
-### 2. Tarayıcı Eklentisi Kurulumu
+## 🧪 Test ve Doğrulama
 
-#### A) Google Chrome / Thorium / Chromium / Brave:
-1. Tarayıcınızın adres çubuğuna şunu yazıp Enter'a basın:
-   `chrome://extensions`
-2. Sağ üst köşedeki **"Geliştirici modu" (Developer mode)** anahtarını açın.
-3. Sol üstte beliren **"Paketlenmemiş öğe yükle" (Load unpacked)** butonuna tıklayın.
-4. Şu klasörü seçin:
-   `/home/auxerov/blender-image-search/extension`
-5. Eklenti hemen aktifleşir! Tarayıcı araç çubuğundaki Blender simgesine tıklayarak bağlantı durumunu (`🟢 Online`) görebilirsiniz.
-
-#### B) Mozilla Firefox:
-1. Firefox adres çubuğuna şunu yazıp Enter'a basın:
-   `about:debugging#/runtime/this-firefox`
-2. **"Geçici Eklenti Yükle..." (Load Temporary Add-on...)** butonuna tıklayın.
-3. Şu dosyayı seçin:
-   `/home/auxerov/blender-image-search/extension_firefox/manifest.json`
-4. Eklenti yüklenir ve sağ tık menüsüne hemen eklenir!
-
----
-
-## 📂 Hazır Paketler (.zip)
-
-Proje klasöründe hazır arşivlenmiş dosyalar bulunmaktadır:
-- **`blender_web_search.zip`**: Başka bir bilgisayara Blender eklentisi olarak yüklemek için.
-- **`add_to_blender_chrome.zip`**: Chrome / Thorium / Chromium için paketlenmiş eklenti.
-- **`add_to_blender_firefox.zip`**: Firefox için paketlenmiş eklenti.
-
----
-
-## 🧪 Doğrulama ve Test Sonuçları
-
-Otomatik test paketi (`tests/test_bridge_addon.py`) ile hem Blender 5.0.1 hem de Blender 5.2.2 LTS üzerinde şu adımlar test edilmiş ve onaylanmıştır:
-1. Eklentinin hatasız yüklenmesi ve `ACCENT_GRAVE` / `GRLESS` kısayol haritalarının kaydı.
-2. HTTP Bridge sunucusunun `9981` portunda ayağa kalkması ve CORS isteklerini karşılaması.
-3. `POST /add_image` ile gönderilen görsellerin (URL veya Base64) arka planda indirilip Blender'ın ana iş parçacığında `Reference Empty`, `Image Plane` ve `Active Material` olarak hatasız oluşturulması.
-4. Eklenti kapatıldığında sunucunun ve portun temiz bir şekilde serbest bırakılması.
+Otomatik test paketi (`tests/test_bridge_addon.py`) ile hem Blender 5.0.1 hem de Blender 5.2.2 LTS üzerinde doğrulandı:
+- Otomatik tarayıcı tespiti (`Thorium Browser / Chromium / Firefox`).
+- Çoklu port desteği ve çakışmasız çalışma (`9981` meşgulse otomatik `9982`ye geçiş).
+- Tarayıcı eklentisinin Blender'ı otomatik keşfetmesi (dinamik port tarama).
+- Referans Görsel, Image Plane ve Materyal Doku oluşturma operasyonları.

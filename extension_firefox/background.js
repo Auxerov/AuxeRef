@@ -3,8 +3,20 @@
  * Handles context menu creation and sends image URLs to Blender's local bridge server.
  */
 
-const BLENDER_URL = "http://127.0.0.1:9981";
+const PORTS = [9981, 9982, 9983, 9984];
 const api = (typeof browser !== "undefined" && browser.runtime) ? browser : chrome;
+
+async function findBlenderUrl() {
+  for (const port of PORTS) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/status`, { cache: "no-store" });
+      if (res.ok) {
+        return `http://127.0.0.1:${port}`;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
 
 function setupMenus() {
   api.contextMenus.removeAll(() => {
@@ -103,8 +115,17 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const rawTitle = (tab && tab.title) ? tab.title.split("-")[0].trim() : "WebImage";
 
+  const blenderUrl = await findBlenderUrl();
+  if (!blenderUrl) {
+    showNotification(
+      "Blender Offline",
+      "Could not connect to Blender (tried ports 9981-9984).\nMake sure Blender is running with the add-on enabled!"
+    );
+    return;
+  }
+
   try {
-    const response = await fetch(`${BLENDER_URL}/add_image`, {
+    const response = await fetch(`${blenderUrl}/add_image`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -124,8 +145,8 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
     }
   } catch (err) {
     showNotification(
-      "Blender Offline",
-      "Could not connect to Blender (http://127.0.0.1:9981).\nMake sure Blender is open and the add-on is enabled!"
+      "Blender Bridge Error",
+      "Failed to deliver image to Blender."
     );
   }
 });

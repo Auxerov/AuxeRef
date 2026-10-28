@@ -1,4 +1,4 @@
-"""Automated test for blender_web_search add-on and HTTP bridge server."""
+"""Automated test for blender_web_search add-on, HTTP bridge server, and auto-installer."""
 import os
 import sys
 import time
@@ -22,11 +22,14 @@ def run_tests():
         sys.exit(1)
 
     time.sleep(0.5)  # Allow server thread to start
+    from blender_web_search import bridge_server
+    port = bridge_server.get_active_port()
+    print(f"  -> Testing on active port: {port}")
 
     # 2. Check HTTP bridge server status endpoint
-    print("[2] Testing GET http://127.0.0.1:9981/status...")
+    print(f"[2] Testing GET http://127.0.0.1:{port}/status...")
     try:
-        req = urllib.request.Request("http://127.0.0.1:9981/status")
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/status")
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print(f"  -> Server responded: {data}")
@@ -35,8 +38,33 @@ def run_tests():
         print(f"FAILED to query bridge server: {e}")
         sys.exit(1)
 
-    # 3. Verify Keymap registration
-    print("[3] Verifying Turkish shortcut keymaps (< / \")...")
+    # 3. Test Auto Browser Detection and Installer Operator
+    print("[3] Testing Browser Detection & Auto-Installer Operator...")
+    from blender_web_search import browser_installer
+    detected = browser_installer.detect_default_browser()
+    print(f"  -> Detected default browser: {detected['name']} (target={detected['target']})")
+    assert "target" in detected and detected["target"] in ("CHROME", "FIREFOX"), f"Invalid detected browser info: {detected}"
+
+    res = bpy.ops.wm.install_browser_extension(target_browser="AUTO")
+    assert "FINISHED" in res, f"install_browser_extension operator failed: {res}"
+    print("  -> Auto-installer operator executed successfully!")
+
+    # 4. Test GET /setup and GET /download/firefox.xpi endpoints
+    print("[4] Testing server /setup and /download endpoints...")
+    req_setup = urllib.request.Request(f"http://127.0.0.1:{port}/setup?browser=chrome")
+    with urllib.request.urlopen(req_setup, timeout=5) as resp:
+        html = resp.read().decode("utf-8")
+        assert "Blender Image Bridge Setup" in html, "Setup page missing expected title"
+        print("  -> GET /setup returned valid HTML setup page")
+
+    req_xpi = urllib.request.Request(f"http://127.0.0.1:{port}/download/firefox.xpi")
+    with urllib.request.urlopen(req_xpi, timeout=5) as resp:
+        xpi_data = resp.read()
+        assert len(xpi_data) > 1000, "XPI download returned empty/corrupted data"
+        print(f"  -> GET /download/firefox.xpi returned valid XPI package ({len(xpi_data)} bytes)")
+
+    # 5. Verify Keymap registration
+    print("[5] Verifying Turkish shortcut keymaps (< / \")...")
     from blender_web_search import addon_keymaps
     print(f"  -> Registered {len(addon_keymaps)} keymap items")
     assert len(addon_keymaps) >= 2, f"Expected at least 2 keymap items, got {len(addon_keymaps)}"
@@ -45,8 +73,7 @@ def run_tests():
     assert "ACCENT_GRAVE" in types, "ACCENT_GRAVE keymap not registered!"
     assert "GRLESS" in types, "GRLESS keymap not registered!"
 
-    # 4. Generate base64 test image
-    # Minimal 16x16 red PNG data URI
+    # 6. Generate base64 test image
     import struct, zlib, base64
     def make_png_data_uri():
         def png_chunk(chunk_type, data):
@@ -65,21 +92,19 @@ def run_tests():
 
     test_data_uri = make_png_data_uri()
 
-    # Helper function to trigger queued timers
     from blender_web_search import bridge_server
     def flush_bridge_queue():
-        # Process queue on main thread directly
         bridge_server._process_queue()
 
-    # 5. Test POST /add_image as REFERENCE
-    print("[5] Testing POST /add_image (REFERENCE mode)...")
+    # 7. Test POST /add_image as REFERENCE
+    print("[7] Testing POST /add_image (REFERENCE mode)...")
     payload = {
         "url": test_data_uri,
         "mode": "REFERENCE",
         "title": "TestRefImage"
     }
     req = urllib.request.Request(
-        "http://127.0.0.1:9981/add_image",
+        f"http://127.0.0.1:{port}/add_image",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
@@ -89,7 +114,6 @@ def run_tests():
 
     flush_bridge_queue()
 
-    # Assert Empty reference object exists
     ref_obj = next((o for o in bpy.context.scene.objects if "TestRefImage" in o.name), None)
     assert ref_obj is not None, "Reference Empty object was not created!"
     assert ref_obj.type == "EMPTY", f"Expected EMPTY, got {ref_obj.type}"
@@ -97,15 +121,15 @@ def run_tests():
     assert ref_obj.data is not None, "Empty data image is None!"
     print(f"  -> Reference object created successfully: '{ref_obj.name}' with image '{ref_obj.data.name}'")
 
-    # 6. Test POST /add_image as PLANE
-    print("[6] Testing POST /add_image (PLANE mode)...")
+    # 8. Test POST /add_image as PLANE
+    print("[8] Testing POST /add_image (PLANE mode)...")
     payload = {
         "url": test_data_uri,
         "mode": "PLANE",
         "title": "TestPlaneImage"
     }
     req = urllib.request.Request(
-        "http://127.0.0.1:9981/add_image",
+        f"http://127.0.0.1:{port}/add_image",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
@@ -124,8 +148,8 @@ def run_tests():
     assert tex_node is not None, "Plane material missing TEX_IMAGE node!"
     print(f"  -> Plane object created successfully: '{plane_obj.name}' with material '{mat.name}'")
 
-    # 7. Test POST /add_image as MATERIAL
-    print("[7] Testing POST /add_image (MATERIAL mode)...")
+    # 9. Test POST /add_image as MATERIAL
+    print("[9] Testing POST /add_image (MATERIAL mode)...")
     bpy.ops.mesh.primitive_cube_add(location=(10, 0, 0))
     cube = bpy.context.active_object
     payload = {
@@ -134,7 +158,7 @@ def run_tests():
         "title": "TestMaterialImage"
     }
     req = urllib.request.Request(
-        "http://127.0.0.1:9981/add_image",
+        f"http://127.0.0.1:{port}/add_image",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
@@ -150,14 +174,13 @@ def run_tests():
     assert tex_node is not None, "Cube material missing TEX_IMAGE node!"
     print(f"  -> Applied image texture to cube active material successfully!")
 
-    # 8. Test Addon disable and server shutdown
-    print("[8] Disabling addon and testing server shutdown...")
+    # 10. Test Addon disable and server shutdown
+    print("[10] Disabling addon and testing server shutdown...")
     bpy.ops.preferences.addon_disable(module="blender_web_search")
     time.sleep(0.5)
 
-    # Server should be closed now
     try:
-        req = urllib.request.Request("http://127.0.0.1:9981/status")
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/status")
         with urllib.request.urlopen(req, timeout=1) as resp:
             assert False, "Server should have been closed on disable!"
     except Exception:
