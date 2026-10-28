@@ -187,7 +187,43 @@ def ensure_native_host_installed():
     return True
 
 def install_firefox_extension() -> int:
-    """Installs the .xpi extension directly into LibreWolf and Firefox profiles."""
+    """Installs the .xpi extension directly into LibreWolf and Firefox profiles and disables signature enforcement."""
+    # 1. Ensure LibreWolf overrides enable unsigned extensions
+    lw_overrides_path = os.path.expanduser("~/.config/librewolf/librewolf.overrides.cfg")
+    pref_block = (
+        "\n// ==============================================================================\n"
+        "// AuxeRef & Unsigned Extensions Support\n"
+        "// ==============================================================================\n"
+        'defaultPref("xpinstall.signatures.required", false);\n'
+        'pref("xpinstall.signatures.required", false);\n'
+        'defaultPref("extensions.langpacks.signatures.required", false);\n'
+        'defaultPref("extensions.autoDisableScopes", 0);\n'
+        'defaultPref("extensions.startupScanScopes", 15);\n'
+        'defaultPref("extensions.enabledScopes", 15);\n'
+    )
+    user_js_block = (
+        "\n// AuxeRef & Unsigned Extensions Support\n"
+        'user_pref("xpinstall.signatures.required", false);\n'
+        'user_pref("extensions.langpacks.signatures.required", false);\n'
+        'user_pref("extensions.autoDisableScopes", 0);\n'
+        'user_pref("extensions.startupScanScopes", 15);\n'
+        'user_pref("extensions.enabledScopes", 15);\n'
+    )
+
+    try:
+        if os.path.exists(lw_overrides_path):
+            with open(lw_overrides_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "xpinstall.signatures.required" not in content:
+                with open(lw_overrides_path, "a", encoding="utf-8") as f:
+                    f.write(pref_block)
+        else:
+            os.makedirs(os.path.dirname(lw_overrides_path), exist_ok=True)
+            with open(lw_overrides_path, "w", encoding="utf-8") as f:
+                f.write(pref_block)
+    except Exception as e:
+        print(f"[AuxeRef] Error updating librewolf.overrides.cfg: {e}")
+
     xpi_src = find_xpi_file()
     if not xpi_src or not os.path.exists(xpi_src):
         return 0
@@ -207,10 +243,22 @@ def install_firefox_extension() -> int:
         try:
             for entry in os.scandir(root):
                 if entry.is_dir():
-                    # Check if directory looks like a browser profile
                     profile_indicators = ["extensions", "prefs.js", "user.js", "times.json", "compatibility.ini"]
                     is_profile = any(os.path.exists(os.path.join(entry.path, ind)) for ind in profile_indicators)
                     if is_profile or "default" in entry.name:
+                        # Append unsigned preference block to user.js
+                        ujs_path = os.path.join(entry.path, "user.js")
+                        try:
+                            ujs_content = ""
+                            if os.path.exists(ujs_path):
+                                with open(ujs_path, "r", encoding="utf-8") as f:
+                                    ujs_content = f.read()
+                            if "xpinstall.signatures.required" not in ujs_content:
+                                with open(ujs_path, "a", encoding="utf-8") as f:
+                                    f.write(user_js_block)
+                        except Exception:
+                            pass
+
                         ext_dir = os.path.join(entry.path, "extensions")
                         os.makedirs(ext_dir, exist_ok=True)
                         dest_file = os.path.join(ext_dir, f"{FIREFOX_EXT_ID}.xpi")
@@ -320,18 +368,11 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
             subprocess.run(["pkill", "-TERM", "-f", kill_targets], check=False)
             time.sleep(0.8)
             subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True, f"AuxeRef installed! {detected['name']} restarted."
+            return True, f"AuxeRef installed! {detected['name']} restarted with unsigned extension support."
         except Exception:
             pass
 
-    # For Firefox/LibreWolf, also offer opening the XPI file to trigger the one-click Add dialog
-    xpi_path = find_xpi_file()
-    if detected["family"] == "firefox" and xpi_path and os.path.exists(xpi_path):
-        try:
-            binary = detected.get("binary", "xdg-open")
-            subprocess.Popen([binary, xpi_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True, f"AuxeRef extension sent to {detected['name']}! Click 'Add' in the browser prompt to confirm."
-        except Exception:
-            pass
+    if detected["family"] == "firefox":
+        return True, f"AuxeRef configured for {detected['name']}! Please restart {detected['name']} to activate."
 
     return True, f"AuxeRef configured successfully for {detected['name']}!"
