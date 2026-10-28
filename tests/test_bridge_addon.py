@@ -58,6 +58,21 @@ def run_tests():
     assert "GRLESS" in types, "GRLESS keymap not registered!"
     print("  -> Primary F8 shortcut and fallback shortcuts verified.")
 
+    # 4b. Verify shortcut_manager
+    print("[4b] Verifying shortcut_manager module...")
+    from blender_web_search import shortcut_manager
+    kmi = shortcut_manager.get_primary_kmi(addon_keymaps)
+    assert kmi is not None, "get_primary_kmi returned None"
+    assert kmi.type == "F8"
+    kmi.type = "F9"
+    shortcut_manager.sync_keymaps(addon_keymaps)
+    v3d_kmis = [item for km, item in addon_keymaps if km.name == "3D View" and item.idname == "wm.auxeref_search" and item.type not in ("ACCENT_GRAVE", "GRLESS")]
+    assert v3d_kmis[0].type == "F9"
+    kmi.type = "F8"
+    shortcut_manager.sync_keymaps(addon_keymaps)
+    assert v3d_kmis[0].type == "F8"
+    print("  -> Verified shortcut_manager keymap synchronization successfully.")
+
     # 5. Test Search operator with Pinterest & Google
     print("[5] Testing wm.auxeref_search operator with Google & Pinterest...")
     from blender_web_search import WM_OT_AuxeRefSearch

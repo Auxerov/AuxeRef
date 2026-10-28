@@ -24,6 +24,7 @@ from bpy.types import Operator, Panel, AddonPreferences
 from . import importer
 from . import browser_installer
 from . import quick_manager
+from . import shortcut_manager
 
 addon_keymaps = []
 INBOX_DIR = "/tmp/blender_open_inbox"
@@ -58,6 +59,9 @@ class AuxeRefPreferences(AddonPreferences):
 
         col = box.column(align=True)
         col.operator("wm.auxeref_auto_install", text=f"Auto-Install Extension to {detected['name']}", icon="IMPORT")
+
+        box2 = layout.box()
+        shortcut_manager.draw_shortcut(box2, addon_keymaps)
 
 
 class WM_OT_AuxeRefSearch(Operator):
@@ -330,6 +334,9 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
         if pref:
             layout.separator()
             layout.prop(pref.preferences, "default_mode", text="Import As")
+
+        layout.separator()
+        shortcut_manager.draw_shortcut(layout, addon_keymaps)
 
         items = quick_manager.load_quick_references()
         if items:
