@@ -1,21 +1,19 @@
-"""AuxeRef: Fast Image Search (Google & Pinterest) via F8 + Browser Context Bridge.
-
-Press F8 in Blender to open the search bar (tab through engine, enter to search).
-In your browser, right-click any image -> AuxeRef -> 'Open in Blender' or 'Add to Quick'.
-Saved quick images appear at the bottom of the F8 search dialog and in the AuxeRef N-Panel.
-Uses native OS messaging: ZERO network ports, ZERO webservers.
+"""AuxeRef: Reference Image Search & Browser Bridge for Blender.
+Author: Auxerov
 """
+
 bl_info = {
     "name": "AuxeRef",
     "author": "Auxerov",
-    "version": (2, 2, 0),
+    "version": (2, 4, 0),
     "blender": (5, 0, 0),
     "location": "Shortcut: F8 (or View3D > Header), Browser Right-Click: AuxeRef",
-    "description": "AuxeRef: Fast Google Images & Pinterest search via F8 and right-click browser bridge for references.",
+    "description": "Instant Google Images & Pinterest search via F8 and right-click browser bridge for references.",
     "category": "3D View",
 }
 
 import os
+import re
 import json
 import webbrowser
 import urllib.parse
@@ -29,6 +27,7 @@ from . import quick_manager
 
 addon_keymaps = []
 INBOX_DIR = "/tmp/blender_open_inbox"
+
 
 class AuxeRefPreferences(AddonPreferences):
     bl_idname = __package__ if __package__ else __name__
@@ -62,7 +61,6 @@ class AuxeRefPreferences(AddonPreferences):
 
 
 class WM_OT_AuxeRefSearch(Operator):
-    """Open AuxeRef search prompt for Google Images & Pinterest and access quick references"""
     bl_idname = "wm.auxeref_search"
     bl_label = "AuxeRef Search"
     bl_description = "Search Google Images or Pinterest (F8) and access saved quick references"
@@ -92,15 +90,12 @@ class WM_OT_AuxeRefSearch(Operator):
     def draw(self, context):
         layout = self.layout
 
-        # 1. Search Box with immediate focus
         col = layout.column(align=True)
         col.prop(self, "query", text="", icon="VIEWZOOM")
 
-        # 2. Engine Tabs
         row = layout.row(align=True)
         row.prop(self, "engine", expand=True)
 
-        # 3. Quick References (Saved Images)
         items = quick_manager.load_quick_references()
         if items:
             layout.separator()
@@ -126,11 +121,9 @@ class WM_OT_AuxeRefSearch(Operator):
         pref = context.preferences.addons.get(__package__, None)
         mode = pref.preferences.default_mode if pref else "REFERENCE"
 
-        # Case 1: Empty input on Enter -> do nothing (clean exit, no random spawning)
         if not q:
             return {"FINISHED"}
 
-        # Smart prefix support: "p keyword" or "pinterest: keyword" -> search Pinterest
         chosen_engine = self.engine
         if q.lower().startswith("p ") or q.lower().startswith("pinterest:"):
             chosen_engine = "PINTEREST"
@@ -141,7 +134,6 @@ class WM_OT_AuxeRefSearch(Operator):
 
         is_url = q.startswith("http://") or q.startswith("https://") or q.startswith("data:image/")
 
-        # Case 2: Pasted URL / Data URI -> Enter directly downloads and adds to scene (without polluting Quicks)
         if is_url:
             try:
                 clean_title = "DirectImage" if q.startswith("data:") else q.split("/")[-1].split("?")[0]
@@ -155,7 +147,6 @@ class WM_OT_AuxeRefSearch(Operator):
                 self.report({"ERROR"}, f"Direct Add failed: {e}")
                 return {"CANCELLED"}
 
-        # Case 3: Keyword search -> Enter directly opens browser
         encoded = urllib.parse.quote_plus(q)
         if chosen_engine == "PINTEREST":
             search_url = f"https://www.pinterest.com/search/pins/?q={encoded}"
@@ -175,9 +166,9 @@ class WM_OT_AuxeRefSearch(Operator):
 
 
 class WM_OT_AuxeRefSpawnQuick(Operator):
-    """Spawn a saved quick reference image directly into the 3D scene"""
     bl_idname = "wm.auxeref_spawn_quick"
     bl_label = "Spawn Quick Reference"
+    bl_description = "Spawn this saved reference image into the 3D scene"
     bl_options = {"REGISTER", "UNDO"}
 
     index: IntProperty(default=0)
@@ -205,9 +196,9 @@ class WM_OT_AuxeRefSpawnQuick(Operator):
 
 
 class WM_OT_AuxeRefRemoveQuick(Operator):
-    """Remove an item from saved Quick References"""
     bl_idname = "wm.auxeref_remove_quick"
     bl_label = "Remove Quick Reference"
+    bl_description = "Delete this reference from the quick palette"
     bl_options = {"REGISTER"}
 
     index: IntProperty(default=0)
@@ -218,9 +209,9 @@ class WM_OT_AuxeRefRemoveQuick(Operator):
 
 
 class WM_OT_AuxeRefClearQuick(Operator):
-    """Clear all saved Quick References"""
     bl_idname = "wm.auxeref_clear_quick"
     bl_label = "Clear All Quick References"
+    bl_description = "Clear all references from the quick palette"
     bl_options = {"REGISTER"}
 
     def execute(self, context):
@@ -230,10 +221,9 @@ class WM_OT_AuxeRefClearQuick(Operator):
 
 
 class WM_OT_AuxeRefEditQuick(Operator):
-    """Edit the name and link of a saved Quick Reference"""
     bl_idname = "wm.auxeref_edit_quick"
     bl_label = "Edit Quick Reference"
-    bl_description = "Change the name or URL of this saved quick reference"
+    bl_description = "Change the name or source URL of this saved quick reference"
     bl_options = {"REGISTER", "UNDO"}
 
     index: IntProperty(default=0)
@@ -260,9 +250,9 @@ class WM_OT_AuxeRefEditQuick(Operator):
 
 
 class WM_OT_AuxeRefOpenUrl(Operator):
-    """Open source webpage of this quick reference in your browser"""
     bl_idname = "wm.auxeref_open_url"
     bl_label = "Open Source Link"
+    bl_description = "Open source webpage of this reference in default browser"
     bl_options = {"REGISTER"}
 
     index: IntProperty(default=0)
@@ -281,7 +271,6 @@ class WM_OT_AuxeRefOpenUrl(Operator):
 
 
 class WM_OT_AuxeRefAutoInstall(Operator):
-    """Automatically install AuxeRef extension into default browser"""
     bl_idname = "wm.auxeref_auto_install"
     bl_label = "Install AuxeRef Browser Extension"
     bl_description = "Configure AuxeRef extension automatically in default browser"
@@ -308,9 +297,9 @@ class WM_OT_AuxeRefAutoInstall(Operator):
         layout.prop(self, "restart_browser")
 
         box2 = layout.box()
-        box2.label(text="No manual steps needed:", icon="CHECKMARK")
+        box2.label(text="Automated Installation:", icon="CHECKMARK")
         box2.label(text="• The extension is installed automatically into your browser.")
-        box2.label(text="• If restarted, all your open tabs and windows will be restored.")
+        box2.label(text="• If restarted, open tabs and windows are automatically restored.")
 
     def execute(self, context):
         pref = context.preferences.addons.get(__package__, None)
@@ -326,7 +315,6 @@ class WM_OT_AuxeRefAutoInstall(Operator):
 
 
 class VIEW3D_PT_AuxeRefPanel(Panel):
-    """3D Viewport N-Panel for AuxeRef and Quick References"""
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "AuxeRef"
@@ -336,7 +324,6 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
         layout = self.layout
         pref = context.preferences.addons.get(__package__, None)
 
-        # Search Trigger
         col = layout.column(align=True)
         col.operator("wm.auxeref_search", text="Search (F8)", icon="VIEWZOOM")
 
@@ -344,7 +331,6 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
             layout.separator()
             layout.prop(pref.preferences, "default_mode", text="Import As")
 
-        # Quick References List
         items = quick_manager.load_quick_references()
         if items:
             layout.separator()
@@ -367,21 +353,18 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
 
 
 def draw_header_button(self, context):
-    """Quick search button in the 3D Viewport header."""
     layout = self.layout
     layout.separator()
     layout.operator("wm.auxeref_search", text="AuxeRef (F8)", icon="VIEWZOOM")
 
 
 def draw_add_menu(self, context):
-    """Add > Image menu item."""
     layout = self.layout
     layout.separator()
     layout.operator("wm.auxeref_search", text="AuxeRef Search (F8)", icon="IMAGE_DATA")
 
 
 def _check_inbox_timer():
-    """Checks /tmp/blender_open_inbox/ on Blender's main loop and processes Open/QuickAdd."""
     if not os.path.exists(INBOX_DIR):
         try:
             os.makedirs(INBOX_DIR, exist_ok=True)
@@ -395,7 +378,7 @@ def _check_inbox_timer():
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     payload = json.load(f)
-                
+
                 try:
                     os.remove(filepath)
                 except Exception:
@@ -412,7 +395,7 @@ def _check_inbox_timer():
                     if action == "QUICK_ADD":
                         quick_manager.add_quick_reference(title, url, local_img)
                         print(f"[AuxeRef] Saved '{title}' to Quicks.")
-                    else:  # "OPEN"
+                    else:
                         pref = bpy.context.preferences.addons.get(__package__, None)
                         mode = pref.preferences.default_mode if pref else "REFERENCE"
                         obj, desc = importer.import_image_into_scene(local_img, mode=mode, title=title)
@@ -449,44 +432,34 @@ def register():
     for cls in __REG_CLASSES:
         bpy.utils.register_class(cls)
 
-    # Ensure native host setup
     browser_installer.ensure_native_host_installed()
 
-    # Add UI elements
     bpy.types.VIEW3D_HT_header.append(draw_header_button)
     bpy.types.VIEW3D_MT_image_add.append(draw_add_menu)
 
-    # Start inbox timer
     bpy.app.timers.register(_check_inbox_timer, first_interval=0.15)
 
-    # Register Keymaps for F8 (and < / " fallback)
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if kc:
-        # Window keymap
         km_win = kc.keymaps.new(name="Window", space_type="EMPTY")
-        
-        # Primary: F8
         kmi_f8_win = km_win.keymap_items.new("wm.auxeref_search", type="F8", value="PRESS")
         addon_keymaps.append((km_win, kmi_f8_win))
 
-        # Secondary: < / " keys
         kmi1 = km_win.keymap_items.new("wm.auxeref_search", type="ACCENT_GRAVE", value="PRESS")
         addon_keymaps.append((km_win, kmi1))
         kmi2 = km_win.keymap_items.new("wm.auxeref_search", type="GRLESS", value="PRESS")
         addon_keymaps.append((km_win, kmi2))
 
-        # 3D View keymap
         km_v3d = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
         kmi_f8_v3d = km_v3d.keymap_items.new("wm.auxeref_search", type="F8", value="PRESS")
         addon_keymaps.append((km_v3d, kmi_f8_v3d))
-        
+
         kmi3 = km_v3d.keymap_items.new("wm.auxeref_search", type="ACCENT_GRAVE", value="PRESS")
         addon_keymaps.append((km_v3d, kmi3))
         kmi4 = km_v3d.keymap_items.new("wm.auxeref_search", type="GRLESS", value="PRESS")
         addon_keymaps.append((km_v3d, kmi4))
 
-    # Automatic prompt on first run (non-headless only)
     def _prompt_auto_install():
         if bpy.app.background:
             return None

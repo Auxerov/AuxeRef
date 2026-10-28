@@ -1,62 +1,93 @@
-# AuxeRef - Native Reference Image Bridge (Blender 5.0 & 5.2 LTS)
+# AuxeRef - Native Reference Image Bridge for Blender
 
-Tamamen yerel (native messaging IPC tabanlı), **sıfır port ve sıfır web sunucusu** ile çalışan; Google Görseller ve Pinterest'te arama yapıp beğendiğiniz herhangi bir resme sağ tıklayarak tek tıkla Blender'a aktarabileceğiniz referans görsel aracı: **AuxeRef**.
+**AuxeRef** is a high-speed, zero-port, zero-server reference image search and browser bridge designed for **Blender 5.0 & 5.2 LTS**. Search Google Images and Pinterest directly inside Blender or right-click any image on the web to open it in your 3D viewport with a single click.
 
----
-
-## ✨ Özellikler ve Kullanım
-
-### 1. F8 Hızlı Arama & Hızlı Referanslar (Quicks)
-- Blender'da **`F8`** tuşuna basın (ayrıca Türkçe klavyede `< / "` tuşları da desteklenir).
-- Arama kutusu anında klavye odağıyla açılır; aramak istediğinizi yazıp **Enter**'a basarak tarayıcıda arama yapabilirsiniz.
-- **Enter Basınca Bitirip Ekle:** Bir resim URL'si yapıştırdığınızda veya kutucuk işaretliyken Enter'a bastığınızda doğrudan sahneye indirip ekler.
-- **X Ekseninde 90° Dik Açıyla Ekleme:** Eklenen tüm görseller (Reference Image ve Image Plane) varsayılan olarak X ekseninde 90 derece döndürülmüş (karşıdan bakışa dik) olarak oluşturulur.
-- **Quicks İsim ve Link Düzenleme:** F8 penceresi altındaki veya N-Panel'deki Quicks listesinde her görselin yanındaki **Kalem (Edit)** butonuna tıklayarak isim ve web bağlantısını Blender arayüzünden doğrudan değiştirebilirsiniz. **Dünya (URL)** simgesiyle orijinal siteyi tarayıcıda yeniden açabilirsiniz.
-
-### 2. Tarayıcı Sağ Tık Menüsü (`AuxeRef`)
-Tarayıcınızda (Chrome, Thorium, Chromium, Brave, Firefox) herhangi bir resme sağ tıkladığınızda **AuxeRef** menüsü açılır:
-- **`AuxeRef ➔ Open in Blender`**: Görseli doğrudan 3D imlecinizin bulunduğu yere referans görseli (90° dik açıyla) olarak ekler.
-- **`AuxeRef ➔ Add to Quicks`**: Görseli sahneye hemen eklemeden doğrudan Blender'ın Quicks paletine kaydeder; dilediğiniz zaman tek tıkla kullanabilirsiniz.
-- *Yüksek Çözünürlük Desteği:* Pinterest ve Google Görseller üzerindeki görseller otomatik olarak orijinal en yüksek çözünürlüklü kalitesine yükseltilerek indirilir.
-
-### 3. Pembe Doku (Pink Image) Hatası Giderildi
-- Google Görseller ve Pinterest'in sunduğu modern **AVIF** ve WebP formatları, yerleşik ffmpeg dönüştürücü motoru sayesinde anında PNG'ye dönüştürülür ve Blender veri bloğuna hatasız (`has_data: True`, tam çözünürlük) yüklenir.
-
-### 4. Sıfır Port, Sıfır Web Sunucusu (Zero-Port Native IPC)
-- Ağ portu, soket veya HTTP sunucusu açmaz; port çakışması (`[Errno 98] Address already in use`) veya güvenlik riski oluşturmaz.
-- Tarayıcı ve Blender arasındaki veri aktarımı yerel OS Native Messaging kanalı ile milisaniyeler içinde gerçekleşir.
+**Author:** Auxerov  
+**Version:** 2.4.0  
+**Compatibility:** Blender 5.0.0+, Blender 5.2 LTS, Chromium, Thorium, Google Chrome, Brave, Mozilla Firefox
 
 ---
 
-## 🛠️ Kurulum
+## ✨ Key Features
 
-Blender'da eklenti etkinleştirildiğinde varsayılan tarayıcınızı otomatik tespit eder ve eklentiyi tarayıcı başlangıç bayraklarına ekler.
+### 1. Instant F8 Search & Quicks Palette
+- **Press `F8` anywhere in Blender** to open the search modal. The text input is immediately focused with no extra clicks required.
+- **Fast Engine Switching:** Seamlessly toggle between **Google Images** and **Pinterest** using the engine buttons or smart prefix queries (`g <keyword>` or `p <keyword>`).
+- **Direct Import on Enter:** Paste any direct image URL (or base64 URI) into the search bar and press Enter to instantly download and import it into your scene.
+- **Upright 90° X-Axis Rotation:** All imported references (Empty Reference Image or Mesh Plane) are automatically rotated 90 degrees on the X-axis to face the viewport upright.
+- **Interactive Quick References:**
+  - View saved references directly under the F8 dialog and the 3D Viewport sidebar (`N > AuxeRef`).
+  - Spawn any saved reference into your scene with one click.
+  - In-place editing: Rename titles and update web URLs using the inline pencil icon.
+  - Re-open original web source pages in your default browser using the link icon.
 
-Manuel olarak tarayıcıya eklemek isterseniz:
-* **Chrome / Thorium / Chromium:**
-  1. `chrome://extensions` adresine gidin ve **Geliştirici modu**nu açın.
-  2. **Paketlenmemiş öğe yükle** butonuna tıklayıp şu klasörü seçin:
-     `/home/auxerov/blender-image-search/extension`
-* **Mozilla Firefox:**
-  1. `about:debugging#/runtime/this-firefox` adresine gidin.
-  2. **Geçici Eklenti Yükle...** butonuna tıklayıp şu dosyayı seçin:
-     `/home/auxerov/blender-image-search/extension_firefox/manifest.json`
+### 2. Native Browser Extension (`AuxeRef`)
+Right-click any image across the web, Google Images, or Pinterest to access the **AuxeRef** menu:
+- **`AuxeRef ➔ Open in Blender`**: Instantly downloads and spawns the reference image at your 3D cursor (upright at 90° X).
+- **`AuxeRef ➔ Add to Quicks`**: Saves the reference to Blender's persistent Quicks palette without cluttering your active scene.
+- **Automatic High-Resolution Resolution:**
+  - Automatically fetches the full-resolution `/originals/` image for Pinterest pins.
+  - Automatically extracts original high-resolution target URLs from Google Images (`imgurl` parameters).
+  - Bypasses hotlink restrictions and CORS blocks using extension background fetch and HTML5 canvas capture.
+
+### 3. Zero-Pink Texture Guarantee (Universal Auto-Healing)
+- Built-in automatic format conversion handles modern web formats—including **AVIF**, **WebP**, **GIF**, **HEIC**, **SVG**, **BMP**, and **TIFF**.
+- Multi-frame animated GIFs and animated WebPs are automatically flattened into single high-resolution PNG textures.
+- Completely prevents Blender pink missing texture errors (`has_data: True` guaranteed).
+
+### 4. Zero-Port Native IPC (No Web Servers)
+- Uses standard OS Native Messaging (`stdio` IPC) instead of running a local HTTP web server.
+- Completely eliminates socket binding conflicts (`Address already in use`), firewall popups, and security risks.
+- Delivers instant sub-millisecond communication between your browser and Blender.
 
 ---
 
-## 📂 Hazır Paketler
-* **Blender Eklentisi:** [`blender_web_search.zip`](file:///home/auxerov/blender-image-search/blender_web_search.zip)
-* **Chrome / Thorium Eklentisi:** [`add_to_blender_chrome.zip`](file:///home/auxerov/blender-image-search/add_to_blender_chrome.zip)
-* **Firefox Eklentisi (.xpi):** [`add_to_blender_firefox.xpi`](file:///home/auxerov/blender-image-search/add_to_blender_firefox.xpi)
+## 🚀 Installation
+
+### 1. Install Blender Add-on
+1. Download [`blender_web_search.zip`](file:///home/auxerov/blender-image-search/blender_web_search.zip).
+2. In Blender, navigate to **Edit > Preferences > Add-ons**.
+3. Click the dropdown in the top right, select **Install from Disk...**, choose `blender_web_search.zip`, and enable **AuxeRef**.
+4. The add-on will automatically configure the native messaging host and detect your default browser.
+
+### 2. Browser Extension Setup
+When enabling the add-on, AuxeRef offers one-click automatic extension installation for your default browser. If you prefer manual installation:
+
+#### Chrome / Thorium / Chromium / Brave
+1. Open `chrome://extensions` and enable **Developer mode** in the top right.
+2. Click **Load unpacked** and select the [`extension`](file:///home/auxerov/blender-image-search/extension) folder.
+   *(Or drag and drop [`extension.crx`](file:///home/auxerov/blender-image-search/extension.crx) into the extensions page).*
+
+#### Mozilla Firefox
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on...** and select [`extension_firefox/manifest.json`](file:///home/auxerov/blender-image-search/extension_firefox/manifest.json).
+   *(Or install the signed package [`add_to_blender_firefox.xpi`](file:///home/auxerov/blender-image-search/add_to_blender_firefox.xpi)).*
 
 ---
 
-## 🧪 Test ve Doğrulama
-Otomatik test paketi (`tests/test_bridge_addon.py`) ile hem Blender 5.0.1 hem de Blender 5.2.2 LTS üzerinde şu adımlar test edilmiş ve onaylanmıştır:
-1. `blender_web_search` (AuxeRef) eklentisinin yüklenmesi ve keymap (`F8`, `< / "`) doğrulaması.
-2. X ekseninde 90° dik açı rotasyonunun (`rotation_euler.x = 90°`) doğrulanması.
-3. Google Images ve Pinterest arama komutlarının çalışması.
-4. Native host (`blender_image_receiver.py`) üzerinden `OPEN` ve `QUICK_ADD` veri akışı.
-5. Quicks isim ve link düzenleme operatörünün (`wm.auxeref_edit_quick`) testi.
-6. Enter ile doğrudan indirme ("Bitirip Ekle") özelliğinin testi.
-7. AVIF/WebP evrensel PNG dönüştürmesi ve sıfır pembe doku garantisi.
+## 📦 Release Packages
+
+| Package | File | Description |
+|---|---|---|
+| **Blender Add-on** | [`blender_web_search.zip`](blender_web_search.zip) | Complete add-on package for Blender 5.0 & 5.2 LTS |
+| **Chrome / Chromium** | [`extension.crx`](extension.crx) | Pre-packed Chromium extension |
+| **Chrome Source ZIP** | [`add_to_blender_chrome.zip`](add_to_blender_chrome.zip) | Unpacked Chrome extension source archive |
+| **Firefox Add-on** | [`add_to_blender_firefox.xpi`](add_to_blender_firefox.xpi) | Pre-packed Firefox extension package |
+| **Firefox Source ZIP** | [`add_to_blender_firefox.zip`](add_to_blender_firefox.zip) | Unpacked Firefox extension source archive |
+
+---
+
+## ⌨️ Shortcuts & Navigation
+
+| Shortcut | Context | Action |
+|---|---|---|
+| **`F8`** | 3D View / Anywhere | Open AuxeRef Search modal with autofocus |
+| **`Tab`** | Search Modal | Cycle between Search Input, Engine buttons, and Quicks list |
+| **`Enter`** | Search Modal | Execute web search or immediately import pasted URL |
+| **`N > AuxeRef`** | 3D View Sidebar | Open persistent Quicks shelf and import options |
+
+---
+
+## 🛡️ License & Credits
+- **Author:** Auxerov
+- **License:** MIT License

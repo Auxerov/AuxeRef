@@ -1,4 +1,6 @@
-"""Persistent Quick References storage and manager for AuxeRef."""
+"""Persistent Quick References storage and manager for AuxeRef.
+Author: Auxerov
+"""
 import os
 import json
 
@@ -10,7 +12,6 @@ def load_quick_references() -> list:
         try:
             with open(QUICK_FILE, "r", encoding="utf-8") as f:
                 items = json.load(f)
-                # Verify that files still exist on disk
                 return [it for it in items if os.path.exists(it.get("filepath", ""))]
         except Exception:
             return []
@@ -28,7 +29,6 @@ def save_quick_references(items: list):
 def add_quick_reference(title: str, url: str, filepath: str) -> list:
     """Adds a new reference to the quick list and persists it."""
     items = load_quick_references()
-    # Filter out duplicate url or filepath
     items = [it for it in items if it.get("url") != url and it.get("filepath") != filepath]
     
     clean_title = (title.strip() if title else "Reference")[:32]
@@ -37,7 +37,6 @@ def add_quick_reference(title: str, url: str, filepath: str) -> list:
         "url": url,
         "filepath": filepath
     })
-    # Keep top 30 items
     items = items[:30]
     save_quick_references(items)
     return items

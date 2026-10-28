@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "AuxeRef",
   "version": "2.4.0",
-  "description": "AuxeRef: Right click any image on Pinterest, Google Images, or the web to Open in Blender or Add to Quick in one click.",
+  "author": "Auxerov",
+  "description": "AuxeRef: Right-click any image on Pinterest, Google Images, or the web to Open in Blender or Add to Quicks in one click.",
   "permissions": [
     "contextMenus",
     "nativeMessaging",

@@ -1,4 +1,7 @@
-"""Image downloading, caching, universal format conversion, and Blender data-block creation."""
+"""Universal Image Importer, Caching, and Conversion for AuxeRef.
+Author: Auxerov
+"""
+
 import os
 import re
 import math
@@ -13,10 +16,12 @@ import bpy
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+
 def get_cache_dir() -> str:
     cache_dir = os.path.join(tempfile.gettempdir(), "auxeref_image_cache")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
+
 
 def clean_name(title: str) -> str:
     if not title:
@@ -24,8 +29,8 @@ def clean_name(title: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     return cleaned[:48] if len(cleaned) > 48 else (cleaned or "WebImage")
 
+
 def is_valid_image_bytes(data: bytes) -> bool:
-    """Verifies that bytes are genuine image data and not an HTML 403/404 error page."""
     if not data or len(data) < 64:
         return False
     prefix = data[:128].lower()
@@ -33,30 +38,23 @@ def is_valid_image_bytes(data: bytes) -> bool:
         return False
     return True
 
+
 def detect_image_extension(content: bytes, url: str = "") -> str:
-    """Accurately detects image file extension from binary magic bytes or URL."""
     if not content:
         return ".png"
 
-    # PNG: \x89PNG\r\n\x1a\n
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
         return ".png"
-    # JPEG: \xff\xd8\xff
     if content.startswith(b"\xff\xd8\xff"):
         return ".jpg"
-    # GIF: GIF87a or GIF89a
     if content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
         return ".gif"
-    # WebP: RIFF....WEBP
     if content.startswith(b"RIFF") and b"WEBP" in content[:16]:
         return ".webp"
-    # BMP: BM
     if content.startswith(b"BM"):
         return ".bmp"
-    # TIFF: II*\x00 (little-endian) or MM\x00* (big-endian)
     if content.startswith(b"II*\x00") or content.startswith(b"MM\x00*"):
         return ".tiff"
-    # AVIF / HEIC: ftyp box
     if b"ftyp" in content[:32]:
         prefix_32 = content[:32]
         if b"avif" in prefix_32 or b"avis" in prefix_32:
@@ -64,18 +62,14 @@ def detect_image_extension(content: bytes, url: str = "") -> str:
         if b"heic" in prefix_32 or b"heif" in prefix_32 or b"mif1" in prefix_32:
             return ".heic"
         return ".avif"
-    # SVG
     prefix_lower = content[:512].lower().strip()
     if b"<svg" in prefix_lower or (b"<?xml" in prefix_lower and b"<svg" in prefix_lower):
         return ".svg"
-    # ICO
     if content.startswith(b"\x00\x00\x01\x00"):
         return ".ico"
-    # JPEG XL
     if content.startswith(b"\xff\x0a") or content.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n"):
         return ".jxl"
 
-    # Fallback to URL extension
     clean_url = url.split("?")[0].lower()
     for ext_candidate in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".bmp", ".tiff", ".heic", ".ico"]:
         if clean_url.endswith(ext_candidate):
@@ -83,13 +77,12 @@ def detect_image_extension(content: bytes, url: str = "") -> str:
 
     return ".img"
 
+
 def convert_to_png(input_path: str) -> str:
-    """Converts any unsupported image format (GIF, AVIF, WebP, HEIC, SVG, TIFF, BMP, etc.) to standard PNG via ffmpeg or Pillow."""
     png_path = os.path.splitext(input_path)[0] + "_converted.png"
     if os.path.exists(png_path) and os.path.getsize(png_path) > 100:
         return png_path
 
-    # 1. FFmpeg with -update 1 (critical for animated GIF, WebP, APNG)
     try:
         res = subprocess.run(
             ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", "-update", "1", png_path],
@@ -100,9 +93,8 @@ def convert_to_png(input_path: str) -> str:
         if res.returncode == 0 and os.path.exists(png_path) and os.path.getsize(png_path) > 100:
             return png_path
     except Exception as e:
-        print(f"[AuxeRef] ffmpeg conversion error: {e}")
+        print(f"[AuxeRef] FFmpeg conversion error: {e}")
 
-    # 2. FFmpeg fallback without -update 1
     try:
         res = subprocess.run(
             ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", png_path],
@@ -115,7 +107,6 @@ def convert_to_png(input_path: str) -> str:
     except Exception:
         pass
 
-    # 3. Pillow fallback (if available)
     try:
         from PIL import Image
         with Image.open(input_path) as im:
@@ -127,32 +118,28 @@ def convert_to_png(input_path: str) -> str:
 
     return input_path
 
+
 def convert_if_needed(filepath: str) -> str:
-    """Checks image format and converts unsupported or problematic formats (GIF, WebP, AVIF, SVG, HEIC, etc.) to PNG."""
     try:
         with open(filepath, "rb") as f:
             header = f.read(64)
 
-        # Standard PNG is always good in Blender
         if header.startswith(b"\x89PNG\r\n\x1a\n"):
             return filepath
 
-        # Standard JPEG is generally good in Blender
         if header.startswith(b"\xff\xd8\xff"):
             return filepath
 
-        # Any other format (GIF, WebP, AVIF, HEIC, SVG, TIFF, BMP, ICO, unknown) -> Convert to PNG!
         return convert_to_png(filepath)
     except Exception as e:
-        print(f"[AuxeRef] convert_if_needed error: {e}")
+        print(f"[AuxeRef] Conversion check error: {e}")
         return filepath
 
+
 def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: str = "") -> str:
-    """Saves image to disk from either a data URI or HTTP/HTTPS URL, auto-converting to standard PNG."""
     cache_dir = get_cache_dir()
     name = clean_name(title)
 
-    # 1. Base64 or URL-encoded data URI
     if url_or_data.startswith("data:image/"):
         match = re.match(r"data:image/([a-zA-Z0-9\-\+\.]+);base64,(.+)", url_or_data)
         if match:
@@ -184,7 +171,6 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
                 f.write(img_data)
             return convert_if_needed(filepath)
 
-    # 2. Extract Google Images embedded imgurl parameter if present
     target_main_url = url_or_data
     if "imgurl=" in target_main_url:
         try:
@@ -194,12 +180,10 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
         except Exception:
             pass
 
-    # 3. HTTP / HTTPS URL
     def fetch_url(target_url: str):
         target_url = target_url.strip()
         parsed = urllib.parse.urlparse(target_url)
 
-        # Referer selection
         if "pinimg.com" in target_url or "pinterest.com" in target_url:
             referer = "https://www.pinterest.com/"
         elif "gstatic.com" in target_url or "google.com" in target_url:
@@ -220,7 +204,7 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
         with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
             data = resp.read()
             if not is_valid_image_bytes(data):
-                raise ValueError("Response was not a valid image (likely HTML 403/404)")
+                raise ValueError("Response was not a valid image.")
             return data
 
     content = None
@@ -233,7 +217,6 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
             break
         except Exception as e:
             last_err = e
-            # Try without referer if hotlink protected
             try:
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
@@ -250,9 +233,7 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
     if not content:
         raise ValueError(f"Failed to download image from {url_or_data}: {last_err}")
 
-    # Determine extension from comprehensive magic bytes
     ext = detect_image_extension(content, target_main_url)
-
     url_hash = hashlib.sha1(url_or_data.encode("utf-8")).hexdigest()[:12]
     filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
     with open(filepath, "wb") as f:
@@ -260,12 +241,11 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
 
     return convert_if_needed(filepath)
 
+
 def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
-    """Loads image into Blender, ensuring non-pink valid texture data via automatic format conversion."""
     filepath = convert_if_needed(filepath)
     abs_path = os.path.abspath(filepath)
 
-    # Check already loaded
     for img in bpy.data.images:
         if img.filepath and os.path.abspath(bpy.path.abspath(img.filepath)) == abs_path:
             if img.has_data and img.size[0] > 0:
@@ -273,9 +253,7 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
 
     bimg = bpy.data.images.load(filepath, check_existing=False)
 
-    # If Blender failed to decode (e.g. format unsupported, pink texture, corrupt), auto-convert via ffmpeg
     if bimg.size[0] == 0 or not bimg.has_data:
-        print(f"[AuxeRef] Blender could not decode {filepath} directly. Converting to PNG via ffmpeg...")
         try:
             bpy.data.images.remove(bimg)
         except Exception:
@@ -291,8 +269,8 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
         bimg.name = clean_name(name)
     return bimg
 
+
 def create_reference_empty(bimg: bpy.types.Image, name: str, context):
-    """Creates an Empty image at the 3D Cursor rotated 90 degrees on the X-axis (standing upright)."""
     empty = bpy.data.objects.new(name=name, object_data=None)
     empty.empty_display_type = "IMAGE"
     empty.data = bimg
@@ -312,8 +290,8 @@ def create_reference_empty(bimg: bpy.types.Image, name: str, context):
     context.view_layer.objects.active = empty
     return empty
 
+
 def create_image_plane(bimg: bpy.types.Image, name: str, context):
-    """Creates a Mesh Plane textured with the image without requiring viewport operators."""
     w, h = bimg.size[0], bimg.size[1]
     aspect = (w / h) if (w > 0 and h > 0) else 1.0
 
@@ -325,7 +303,6 @@ def create_image_plane(bimg: bpy.types.Image, name: str, context):
     mesh.from_pydata(verts, [], faces)
     mesh.update()
 
-    # UV Unwrapping
     uv_layer = mesh.uv_layers.new(name="UVMap")
     uvs = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
     for i, loop in enumerate(mesh.loops):
@@ -336,11 +313,10 @@ def create_image_plane(bimg: bpy.types.Image, name: str, context):
     obj.rotation_euler = (math.radians(90.0), 0.0, 0.0)
     context.collection.objects.link(obj)
 
-    # Material
     mat = bpy.data.materials.new(name=f"Mat_{name}")
     if hasattr(mat, "use_nodes"):
         mat.use_nodes = True
-    
+
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     bsdf = nodes.get("Principled BSDF")
@@ -358,57 +334,54 @@ def create_image_plane(bimg: bpy.types.Image, name: str, context):
 
     obj.data.materials.append(mat)
 
-    # Set active
     for o in context.selected_objects:
         o.select_set(False)
     obj.select_set(True)
     context.view_layer.objects.active = obj
     return obj
 
+
 def apply_to_active_material(bimg: bpy.types.Image, name: str, context):
-    """Applies image texture to active object's material."""
     obj = context.active_object
     if not obj or obj.type != "MESH":
         return create_image_plane(bimg, name, context)
 
     mat = obj.active_material
     if not mat:
-        mat = bpy.data.materials.new(name=f"Mat_{obj.name}")
-        if hasattr(mat, "use_nodes"):
-            mat.use_nodes = True
-        obj.data.materials.append(mat)
+        mat = bpy.data.materials.new(name=f"Mat_{name}")
+        obj.active_material = mat
+
+    if hasattr(mat, "use_nodes"):
+        mat.use_nodes = True
 
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     bsdf = nodes.get("Principled BSDF")
 
-    tex = next((n for n in nodes if n.type == "TEX_IMAGE"), None)
-    if not tex:
-        tex = nodes.new("ShaderNodeTexImage")
-        tex.location = (-320, 0)
-    
+    tex = nodes.new("ShaderNodeTexImage")
     tex.image = bimg
+    tex.location = (-320, 0)
+
     if bsdf:
         links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+
     return obj
 
-def import_image_into_scene(filepath: str, mode: str = "REFERENCE", title: str = "", context = None):
-    """Dispatches image import into Blender scene."""
+
+def import_image_into_scene(filepath_or_url: str, mode: str = "REFERENCE", title: str = "Reference", context = None):
     if context is None:
         context = bpy.context
 
-    name = clean_name(title)
-    bimg = get_or_load_image(filepath, name)
+    bimg = get_or_load_image(filepath_or_url, name=title)
 
-    mode_upper = mode.upper() if mode else "REFERENCE"
-    if mode_upper == "PLANE":
-        created = create_image_plane(bimg, name, context)
-        action_desc = "Image Plane (Mesh)"
-    elif mode_upper == "MATERIAL":
-        created = apply_to_active_material(bimg, name, context)
-        action_desc = "Active Material Texture"
-    else:  # REFERENCE
-        created = create_reference_empty(bimg, name, context)
-        action_desc = "Reference Image (Empty)"
+    if mode == "PLANE":
+        obj = create_image_plane(bimg, title, context)
+        desc = "Image Plane"
+    elif mode == "MATERIAL":
+        obj = apply_to_active_material(bimg, title, context)
+        desc = "Active Material Texture"
+    else:
+        obj = create_reference_empty(bimg, title, context)
+        desc = "Reference Image"
 
-    return created, action_desc
+    return obj, desc

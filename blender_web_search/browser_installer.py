@@ -1,4 +1,6 @@
-"""Automatic Native Messaging Host and Browser Extension setup for AuxeRef."""
+"""Automatic Native Messaging Host and Browser Extension setup for AuxeRef.
+Author: Auxerov
+"""
 import os
 import stat
 import json
@@ -57,7 +59,6 @@ def ensure_native_host_installed():
     """Installs receiver script and native messaging manifests across all browser profiles."""
     os.makedirs(INBOX_DIR, exist_ok=True)
 
-    # 1. Install receiver script to ~/.local/bin/
     bin_dir = os.path.dirname(RECEIVER_SCRIPT_PATH)
     os.makedirs(bin_dir, exist_ok=True)
     with open(RECEIVER_SCRIPT_PATH, "w", encoding="utf-8") as f:
@@ -65,7 +66,6 @@ def ensure_native_host_installed():
     st = os.stat(RECEIVER_SCRIPT_PATH)
     os.chmod(RECEIVER_SCRIPT_PATH, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-    # 2. Chrome / Thorium / Chromium native messaging manifest
     chrome_manifest = {
         "name": NATIVE_HOST_NAME,
         "description": "AuxeRef Image Bridge Native Host",
@@ -91,7 +91,6 @@ def ensure_native_host_installed():
         with open(manifest_file, "w", encoding="utf-8") as f:
             json.dump(chrome_manifest, f, indent=2)
 
-    # 3. Firefox native messaging manifest
     firefox_manifest = {
         "name": NATIVE_HOST_NAME,
         "description": "AuxeRef Image Bridge Native Host",
@@ -200,7 +199,7 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
             time.sleep(1.0)
             subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True, f"AuxeRef installed! {detected['name']} restarted."
-        except Exception as e:
+        except Exception:
             return True, f"AuxeRef configured! Please restart {detected['name']}."
 
     return True, f"AuxeRef installed automatically for {detected['name']}!"

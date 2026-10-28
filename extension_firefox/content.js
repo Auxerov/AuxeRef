@@ -1,8 +1,5 @@
-// content.js - Smart image resolver for Google Images, Pinterest, and Web
-
 function extractGoogleHighRes(element) {
   if (!element) return null;
-  // 1. Check enclosing or adjacent anchor with imgurl
   const anchor = element.closest("a[href*='imgurl=']") || 
                 (element.parentElement ? element.parentElement.closest("a[href*='imgurl=']") : null);
   if (anchor && anchor.href) {
@@ -38,12 +35,10 @@ function findImageTargets(element) {
   const googleHighRes = extractGoogleHighRes(element);
   let thumbUrl = "";
 
-  // 1. Direct IMG element
   if (element.tagName === "IMG") {
     thumbUrl = element.currentSrc || element.src || "";
   }
 
-  // 2. Nearest IMG inside container or parent
   if (!thumbUrl) {
     const nested = element.querySelector("img");
     if (nested) {
@@ -51,7 +46,6 @@ function findImageTargets(element) {
     }
   }
 
-  // 3. Pinterest Pin containers
   if (!thumbUrl) {
     const pin = element.closest("[data-test-id='pin'], [data-test-id='pinWrapper'], div[role='listitem'], .XiG");
     if (pin) {
@@ -60,7 +54,6 @@ function findImageTargets(element) {
     }
   }
 
-  // 4. Background image CSS
   if (!thumbUrl) {
     let curr = element;
     for (let i = 0; i < 4 && curr; i++) {
@@ -73,7 +66,6 @@ function findImageTargets(element) {
     }
   }
 
-  // Pinterest original high-res upgrade
   let bestUrl = googleHighRes || thumbUrl || canvasData;
   let fallbackUrl = canvasData || thumbUrl || googleHighRes;
 

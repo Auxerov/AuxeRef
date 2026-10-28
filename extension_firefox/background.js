@@ -1,12 +1,6 @@
-/**
- * AuxeRef - Background Service Worker
- * Communicates with Blender via native messaging without any web servers or ports.
- */
-
 const NATIVE_HOST = "com.auxerov.blender";
 let lastTargetsByTab = {};
 
-// Receive resolved image target from content script
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "BLENDER_IMAGE_TARGET" && sender.tab) {
     lastTargetsByTab[sender.tab.id] = {
@@ -16,7 +10,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
-// Top-level menu items: Browser automatically groups multiple items into a single parent menu named after the extension ("AuxeRef")
 const MENU_ITEMS = [
   {
     id: "auxeref_open",
@@ -35,10 +28,6 @@ let initRunning = false;
 function createMenuAsync(item) {
   return new Promise((resolve) => {
     chrome.contextMenus.create(item, () => {
-      const err = chrome.runtime.lastError;
-      if (err) {
-        // Can happen if already created or duplicate
-      }
       resolve();
     });
   });
@@ -50,7 +39,6 @@ async function setupMenus() {
   try {
     await new Promise((resolve) => {
       chrome.contextMenus.removeAll(() => {
-        const err = chrome.runtime.lastError;
         resolve();
       });
     });
@@ -65,7 +53,6 @@ async function setupMenus() {
   }
 }
 
-// Call on installed, startup, and service worker wake-up
 chrome.runtime.onInstalled.addListener(() => { setupMenus(); });
 chrome.runtime.onStartup.addListener(() => { setupMenus(); });
 setupMenus();
@@ -74,20 +61,17 @@ function resolveTarget(info, tab) {
   let url = "";
   let fallbackUrl = "";
 
-  // 1. Content script target
   if (tab && lastTargetsByTab[tab.id]) {
     url = lastTargetsByTab[tab.id].url;
     fallbackUrl = lastTargetsByTab[tab.id].fallbackUrl;
     delete lastTargetsByTab[tab.id];
   }
 
-  // 2. Direct srcUrl
   if (!url && info.srcUrl) {
     url = info.srcUrl;
     fallbackUrl = info.srcUrl;
   }
 
-  // 3. Google Images embedded imgurl parameter
   if (info.linkUrl && info.linkUrl.includes("imgurl=")) {
     try {
       const match = info.linkUrl.match(/[?&]imgurl=([^&]+)/);
@@ -97,7 +81,6 @@ function resolveTarget(info, tab) {
     } catch (e) {}
   }
 
-  // 4. Pinterest high-res upgrade
   if (url && url.includes("pinimg.com")) {
     url = url.replace(/\/(?:236x|474x|564x|736x)\//, "/originals/");
   }
@@ -125,7 +108,6 @@ async function fetchImageAsDataUrl(url) {
   if (!url) return null;
   if (url.startsWith("data:image/")) return url;
 
-  // 1. Unrestricted fetch using extension host permissions
   try {
     const res = await fetch(url);
     if (res.ok) {
@@ -136,7 +118,6 @@ async function fetchImageAsDataUrl(url) {
     }
   } catch (err) {}
 
-  // 2. Fallback fetch with credentials (for Pinterest / Google session images)
   try {
     const res = await fetch(url, { credentials: "include" });
     if (res.ok) {
@@ -167,7 +148,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const pageTitle = (tab && tab.title) ? tab.title.split("-")[0].trim() : "WebImage";
   const actionType = isActionQuick ? "QUICK_ADD" : "OPEN";
 
-  // Try fetching in browser background to bypass hotlink & CORS blocks
   let finalUrl = targetUrl;
   let fetched = await fetchImageAsDataUrl(targetUrl);
   if (!fetched && fallbackUrl && fallbackUrl !== targetUrl) {
