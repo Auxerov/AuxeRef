@@ -16,48 +16,65 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
-function setupMenus() {
-  chrome.contextMenus.removeAll(() => {
-    // 1. Parent Context Menu: "AuxeRef"
-    chrome.contextMenus.create({
-      id: "auxeref_root",
-      title: "AuxeRef",
-      contexts: ["all"]
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.warn("AuxeRef parent menu:", chrome.runtime.lastError.message);
+// Bitwarden Pattern: Hierarchical context menu structure
+const MENU_ITEMS = [
+  {
+    id: "auxeref_root",
+    title: "AuxeRef",
+    contexts: ["all"]
+  },
+  {
+    parentId: "auxeref_root",
+    id: "auxeref_open",
+    title: "Open in Blender",
+    contexts: ["all"]
+  },
+  {
+    parentId: "auxeref_root",
+    id: "auxeref_quick",
+    title: "Add to Quicks",
+    contexts: ["all"]
+  }
+];
+
+let initRunning = false;
+
+function createMenuAsync(item) {
+  return new Promise((resolve) => {
+    chrome.contextMenus.create(item, () => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        // Can happen if already created or duplicate
       }
-
-      // 2. Submenu Item 1: "Open in Blender"
-      chrome.contextMenus.create({
-        parentId: "auxeref_root",
-        id: "auxeref_open",
-        title: "Open in Blender",
-        contexts: ["all"]
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn("Submenu Open in Blender:", chrome.runtime.lastError.message);
-        }
-      });
-
-      // 3. Submenu Item 2: "Add to Quicks"
-      chrome.contextMenus.create({
-        parentId: "auxeref_root",
-        id: "auxeref_quick",
-        title: "Add to Quicks",
-        contexts: ["all"]
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn("Submenu Add to Quicks:", chrome.runtime.lastError.message);
-        }
-      });
+      resolve();
     });
   });
 }
 
+async function setupMenus() {
+  if (initRunning) return;
+  initRunning = true;
+  try {
+    await new Promise((resolve) => {
+      chrome.contextMenus.removeAll(() => {
+        const err = chrome.runtime.lastError;
+        resolve();
+      });
+    });
+
+    for (const item of MENU_ITEMS) {
+      await createMenuAsync(item);
+    }
+  } catch (err) {
+    console.warn("AuxeRef setupMenus error:", err);
+  } finally {
+    initRunning = false;
+  }
+}
+
 // Call on installed, startup, and service worker wake-up
-chrome.runtime.onInstalled.addListener(setupMenus);
-chrome.runtime.onStartup.addListener(setupMenus);
+chrome.runtime.onInstalled.addListener(() => { setupMenus(); });
+chrome.runtime.onStartup.addListener(() => { setupMenus(); });
 setupMenus();
 
 function resolveTarget(info, tab) {

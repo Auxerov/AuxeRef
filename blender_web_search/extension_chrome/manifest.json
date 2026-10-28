@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AuxeRef",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "AuxeRef: Right click any image on Pinterest, Google Images, or the web to Open in Blender or Add to Quick in one click.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAztgAGeQtN4CdvpQU92/Oc9FlOYy9SFJvrciecu0upQyxjX/06Q3o5K35IWEmkmjf7HqnwRGE+RdmPPMxkGOvx82bUCYXkH/diLxOKq3KEhyjval+KWs00MG+FJx2ZEuQPgcJ4KAYkid5psbDs31j64wjExjRhGR/TlEmlh33nfAAeRhi4hH8VZ9F8PqX4aTytjZpu80r1pSdFg9qSctJb5yKXS+OwjEhUt8QWW4xWLw5Gz7fiTrs0X+sTkykJjOkNxUEQp1M0KLKo89jLOsQTjW8o7pFgL7Ha2WUx82FzJs7Ns++Q4i/3EpLJwOyFZolwIyq9/ju2ASO1mX7n9hZUwIDAQAB",
   "permissions": [

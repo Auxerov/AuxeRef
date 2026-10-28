@@ -192,14 +192,14 @@ def run_tests():
     assert updated_items[0]["url"] == "https://example.com/robot.png"
     print(f"  -> Verified Quick reference editing: title='{updated_items[0]['title']}', url='{updated_items[0]['url']}'")
 
-    # 9c. Test Direct Add on Enter (Enter Basınca Bitirip Ekle)
-    print("[9c] Testing Direct Add on Enter ('Bitirip Ekle')...")
-    res = bpy.ops.wm.auxeref_search(query=test_data_uri, direct_add=True)
+    # 9c. Test Direct Add on Enter (no checkbox needed, Enter on URL directly adds)
+    print("[9c] Testing Direct Add on Enter (automatic URL detection)...")
+    res = bpy.ops.wm.auxeref_search(query=test_data_uri)
     assert "FINISHED" in res
     direct_obj = next((o for o in bpy.context.scene.objects if "DirectImage" in o.name), None)
     assert direct_obj is not None, "Direct Add object was not created in scene!"
     assert abs(math.degrees(direct_obj.rotation_euler.x) - 90.0) < 0.1
-    print(f"  -> Verified Direct Add on Enter: created '{direct_obj.name}' upright in 3D scene.")
+    print(f"  -> Verified Direct Add on Enter: created '{direct_obj.name}' upright (90° X) in 3D scene.")
 
     # 10. Test AVIF, WebP, and Problematic Format Conversion via ffmpeg
     print("[10] Testing AVIF / WebP universal auto-conversion to standard PNG...")

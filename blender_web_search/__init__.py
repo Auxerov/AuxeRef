@@ -44,12 +44,6 @@ class AuxeRefPreferences(AddonPreferences):
         default="REFERENCE"
     )
 
-    direct_add_on_enter: BoolProperty(
-        name="Enter Basınca Bitirip Ekle (Direct Add on Enter)",
-        description="When enabled, if a URL or image link is entered in F8 and Enter is pressed, it directly downloads and adds it to the 3D scene",
-        default=True
-    )
-
     has_asked_browser_install: BoolProperty(
         name="Has Asked Browser Install",
         default=False
@@ -60,22 +54,11 @@ class AuxeRefPreferences(AddonPreferences):
         detected = browser_installer.detect_default_browser()
 
         box = layout.box()
-        box.label(text="AuxeRef Native Bridge", icon="WORLD")
-        box.label(text=f"Default Browser: {detected['name']}")
+        box.label(text=f"AuxeRef Native Bridge ({detected['name']})", icon="WORLD")
         box.prop(self, "default_mode")
-        box.prop(self, "direct_add_on_enter")
 
         col = box.column(align=True)
         col.operator("wm.auxeref_auto_install", text=f"Auto-Install Extension to {detected['name']}", icon="IMPORT")
-
-        box2 = layout.box()
-        box2.label(text="How to use:", icon="INFO")
-        box2.label(text="1. Press F8 in Blender to search Google Images or Pinterest.")
-        box2.label(text="2. In browser, right-click any image: AuxeRef ➔ Open in Blender or Add to Quick!")
-
-        box3 = layout.box()
-        box3.label(text="Shortcut Information", icon="KEYINGSET")
-        box3.label(text="Primary Shortcut: F8 (also < / \" on Turkish keyboard).")
 
 
 class WM_OT_AuxeRefSearch(Operator):
@@ -87,7 +70,7 @@ class WM_OT_AuxeRefSearch(Operator):
 
     query: StringProperty(
         name="Search",
-        description="Type keyword and press Enter to search",
+        description="Type keyword to search, or paste URL to import immediately",
         default=""
     )
 
@@ -101,44 +84,34 @@ class WM_OT_AuxeRefSearch(Operator):
         default="GOOGLE"
     )
 
-    direct_add: BoolProperty(
-        name="Bitirip Ekle (Direct Add)",
-        description="If checked, or if an image link is pasted, pressing Enter directly adds the image to Blender scene",
-        default=False
-    )
-
     def invoke(self, context, event):
         self.query = ""
-        self.direct_add = False
         return context.window_manager.invoke_props_dialog(self, width=440)
 
     def draw(self, context):
         layout = self.layout
-        
-        # 1. Search Box with immediate focus
+
+        # 1. Minimalist Search Box
         col = layout.column(align=True)
-        col.label(text="Search Online Images or Paste Image URL:", icon="VIEWZOOM")
-        col.prop(self, "query", text="")
-        
-        layout.separator()
+        col.prop(self, "query", text="", icon="VIEWZOOM")
+
+        # 2. Engine Tabs
         row = layout.row(align=True)
         row.prop(self, "engine", expand=True)
 
-        row2 = layout.row(align=True)
-        row2.prop(self, "direct_add", text="Enter Basınca Bitirip Ekle (Direct Add)")
-
-        # 2. Quick References (Saved Images)
+        # 3. Quick References (Saved Images)
         items = quick_manager.load_quick_references()
-        layout.separator()
-        box = layout.box()
-        header_row = box.row()
-        header_row.label(text=f"Quicks / Saved References ({len(items)}):", icon="IMAGE_DATA")
         if items:
+            layout.separator()
+            box = layout.box()
+            header_row = box.row()
+            header_row.label(text=f"Quicks ({len(items)})", icon="IMAGE_DATA")
             header_row.operator("wm.auxeref_clear_quick", text="Clear", icon="TRASH")
             col = box.column(align=True)
             for idx, item in enumerate(items[:10]):
                 r = col.row(align=True)
-                op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
+                title = item.get("title") or f"Quick #{idx + 1}"
+                op = r.operator("wm.auxeref_spawn_quick", text=title, icon="RESTRICT_VIEW_OFF")
                 op.index = idx
                 op_link = r.operator("wm.auxeref_open_url", text="", icon="URL")
                 op_link.index = idx
@@ -146,22 +119,29 @@ class WM_OT_AuxeRefSearch(Operator):
                 op_edit.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
-        else:
-            box.label(text="No saved references yet.", icon="INFO")
-            box.label(text="In browser, right click image -> AuxeRef -> Add to Quicks!")
 
     def execute(self, context):
         q = self.query.strip()
-        if not q:
-            # If query is empty, simply close without error
-            return {"FINISHED"}
-
+        items = quick_manager.load_quick_references()
         pref = context.preferences.addons.get(__package__, None)
         mode = pref.preferences.default_mode if pref else "REFERENCE"
-        is_url = q.startswith("http://") or q.startswith("https://") or q.startswith("data:image/")
-        do_direct_add = self.direct_add or is_url or (pref and pref.preferences.direct_add_on_enter and is_url)
 
-        if do_direct_add and is_url:
+        # Case 1: Empty input on Enter -> spawn top quick if available
+        if not q:
+            if items:
+                item = items[0]
+                filepath = item.get("filepath", "")
+                title = item.get("title", "QuickRef")
+                if filepath and os.path.exists(filepath):
+                    obj, desc = importer.import_image_into_scene(filepath, mode=mode, title=title, context=context)
+                    self.report({"INFO"}, f"Added '{obj.name}' as {desc} into scene!")
+                    return {"FINISHED"}
+            return {"FINISHED"}
+
+        is_url = q.startswith("http://") or q.startswith("https://") or q.startswith("data:image/")
+
+        # Case 2: Pasted URL / Data URI -> Enter directly downloads, rotates 90° on X, and adds to scene & Quicks
+        if is_url:
             try:
                 clean_title = "DirectImage" if q.startswith("data:") else q.split("/")[-1].split("?")[0]
                 if not clean_title or len(clean_title) < 2:
@@ -175,6 +155,7 @@ class WM_OT_AuxeRefSearch(Operator):
                 self.report({"ERROR"}, f"Direct Add failed: {e}")
                 return {"CANCELLED"}
 
+        # Case 3: Keyword search -> Enter directly opens browser
         encoded = urllib.parse.quote_plus(q)
         if self.engine == "PINTEREST":
             search_url = f"https://www.pinterest.com/search/pins/?q={encoded}"
@@ -365,16 +346,17 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
 
         # Quick References List
         items = quick_manager.load_quick_references()
-        layout.separator()
-        box = layout.box()
-        row = box.row()
-        row.label(text=f"Quicks ({len(items)}):", icon="IMAGE_DATA")
         if items:
+            layout.separator()
+            box = layout.box()
+            row = box.row()
+            row.label(text=f"Quicks ({len(items)})", icon="IMAGE_DATA")
             row.operator("wm.auxeref_clear_quick", text="Clear", icon="TRASH")
             col = box.column(align=True)
             for idx, item in enumerate(items):
                 r = col.row(align=True)
-                op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
+                title = item.get("title") or f"Quick #{idx + 1}"
+                op = r.operator("wm.auxeref_spawn_quick", text=title, icon="RESTRICT_VIEW_OFF")
                 op.index = idx
                 op_link = r.operator("wm.auxeref_open_url", text="", icon="URL")
                 op_link.index = idx
@@ -382,9 +364,6 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
                 op_edit.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
-        else:
-            box.label(text="No saved references yet.", icon="INFO")
-            box.label(text="Right-click in browser ➔ Add to Quicks!")
 
 
 def draw_header_button(self, context):
