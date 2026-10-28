@@ -60,6 +60,9 @@ def run_tests():
 
     # 5. Test Search operator with Pinterest & Google
     print("[5] Testing wm.auxeref_search operator with Google & Pinterest...")
+    from blender_web_search import WM_OT_AuxeRefSearch
+    assert WM_OT_AuxeRefSearch.bl_property == "query", "bl_property must be 'query' for immediate text focus!"
+    print("  -> Verified bl_property='query' for automatic search field focus on F8.")
     orig_open = webbrowser.open_new_tab
     opened_urls = []
     webbrowser.open_new_tab = lambda u: opened_urls.append(u) or True

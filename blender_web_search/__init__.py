@@ -67,6 +67,7 @@ class WM_OT_AuxeRefSearch(Operator):
     bl_label = "AuxeRef Search"
     bl_description = "Search Google Images or Pinterest (F8) and access saved quick references"
     bl_options = {"REGISTER"}
+    bl_property = "query"
 
     query: StringProperty(
         name="Search",
@@ -86,12 +87,12 @@ class WM_OT_AuxeRefSearch(Operator):
 
     def invoke(self, context, event):
         self.query = ""
-        return context.window_manager.invoke_props_dialog(self, width=440)
+        return context.window_manager.invoke_props_dialog(self, width=440, confirm_text="Search")
 
     def draw(self, context):
         layout = self.layout
 
-        # 1. Minimalist Search Box
+        # 1. Search Box with immediate focus
         col = layout.column(align=True)
         col.prop(self, "query", text="", icon="VIEWZOOM")
 
@@ -122,25 +123,25 @@ class WM_OT_AuxeRefSearch(Operator):
 
     def execute(self, context):
         q = self.query.strip()
-        items = quick_manager.load_quick_references()
         pref = context.preferences.addons.get(__package__, None)
         mode = pref.preferences.default_mode if pref else "REFERENCE"
 
-        # Case 1: Empty input on Enter -> spawn top quick if available
+        # Case 1: Empty input on Enter -> do nothing (clean exit, no random spawning)
         if not q:
-            if items:
-                item = items[0]
-                filepath = item.get("filepath", "")
-                title = item.get("title", "QuickRef")
-                if filepath and os.path.exists(filepath):
-                    obj, desc = importer.import_image_into_scene(filepath, mode=mode, title=title, context=context)
-                    self.report({"INFO"}, f"Added '{obj.name}' as {desc} into scene!")
-                    return {"FINISHED"}
             return {"FINISHED"}
+
+        # Smart prefix support: "p keyword" or "pinterest: keyword" -> search Pinterest
+        chosen_engine = self.engine
+        if q.lower().startswith("p ") or q.lower().startswith("pinterest:"):
+            chosen_engine = "PINTEREST"
+            q = re.sub(r'^(p\s+|pinterest:\s*)', '', q, flags=re.IGNORECASE).strip()
+        elif q.lower().startswith("g ") or q.lower().startswith("google:"):
+            chosen_engine = "GOOGLE"
+            q = re.sub(r'^(g\s+|google:\s*)', '', q, flags=re.IGNORECASE).strip()
 
         is_url = q.startswith("http://") or q.startswith("https://") or q.startswith("data:image/")
 
-        # Case 2: Pasted URL / Data URI -> Enter directly downloads, rotates 90° on X, and adds to scene & Quicks
+        # Case 2: Pasted URL / Data URI -> Enter directly downloads and adds to scene (without polluting Quicks)
         if is_url:
             try:
                 clean_title = "DirectImage" if q.startswith("data:") else q.split("/")[-1].split("?")[0]
@@ -148,7 +149,6 @@ class WM_OT_AuxeRefSearch(Operator):
                     clean_title = "DirectImage"
                 local_img = importer.download_or_decode_image(q, clean_title)
                 obj, desc = importer.import_image_into_scene(local_img, mode=mode, title=clean_title, context=context)
-                quick_manager.add_quick_reference(obj.name, q, local_img)
                 self.report({"INFO"}, f"Added '{obj.name}' as {desc} into scene (rotated 90° on X)!")
                 return {"FINISHED"}
             except Exception as e:
@@ -157,7 +157,7 @@ class WM_OT_AuxeRefSearch(Operator):
 
         # Case 3: Keyword search -> Enter directly opens browser
         encoded = urllib.parse.quote_plus(q)
-        if self.engine == "PINTEREST":
+        if chosen_engine == "PINTEREST":
             search_url = f"https://www.pinterest.com/search/pins/?q={encoded}"
             engine_name = "Pinterest"
         else:
@@ -417,8 +417,6 @@ def _check_inbox_timer():
                         mode = pref.preferences.default_mode if pref else "REFERENCE"
                         obj, desc = importer.import_image_into_scene(local_img, mode=mode, title=title)
                         print(f"[AuxeRef] Opened '{obj.name}' as {desc} in scene.")
-                        # Also automatically add to quick references
-                        quick_manager.add_quick_reference(title, url, local_img)
 
                     for window in bpy.context.window_manager.windows:
                         for area in window.screen.areas:
