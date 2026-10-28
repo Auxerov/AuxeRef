@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Add to Blender (Image Bridge)",
+  "version": "1.0.0",
+  "description": "Right click any image in your browser to add it directly into Blender as a Reference Image, Image Plane, or Material Texture.",
+  "permissions": [
+    "contextMenus",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Blender Image Bridge",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

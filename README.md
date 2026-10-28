@@ -1,59 +1,71 @@
-# Blender Image Search Add-on (Blender 5.0 & 5.2 LTS)
+# Blender Web Image Search & Browser Bridge (Blender 5.0 & 5.2 LTS)
 
-Blender 5.0 ve 5.2 LTS için doğrudan 3D Viewport arayüzünden (N-Panel) internetten ve Google Görseller'den görsel arayıp tek tıkla sahneye eklemenizi sağlayan hafif ve güçlü eklenti.
-
----
-
-## ✨ Özellikler
-
-1. **Arayüzden Doğrudan Arama (3D Viewport > N-Paneli > `Image Search`):**
-   - Blender'dan çıkmadan veya harici tarayıcı açmadan doğrudan anahtar kelimeyle arama yapın.
-   - Sonuçlar küçük resim (thumbnail) önizlemeleriyle 3 sütunlu ızgara biçiminde listelenir.
-   - Asenkron arama ve indirme: Blender arayüzü asla donmaz veya takılmaz.
-
-2. **Çoklu Arama Motoru Desteği:**
-   - **Web / Bing (Free):** Sıfır kurulum! Herhangi bir API anahtarı gerektirmeden anında çalışır.
-   - **Wikimedia Commons:** Kamu malı (Public Domain) ve Creative Commons lisanslı yüksek çözünürlüklü referanslar ve dokular.
-   - **Google Custom Search (API):** Kendi Google API anahtarınızı girerek resmi Google Görseller altyapısını kullanma imkanı.
-
-3. **Görsel Ekleme Seçenekleri:**
-   - **Add as Reference (Empty):** Seçilen görseli 3D İmlecin (3D Cursor) bulunduğu konuma en-boy oranı korunmuş Referans Görsel (Empty Image) olarak ekler.
-   - **Add as Image Plane (Mesh):** Görselin orijinal en-boy oranına göre orantılanmış bir Plane mesh'i oluşturur, Principled BSDF materyali bağlar ve otomatik olarak Material Preview moduna geçer. Saydamlık (Alpha kanalı) varsa otomatik olarak transparan olarak ayarlar.
-   - **Apply to Active Material:** Seçili nesnenin aktif materyalinin Base Color dokusu olarak atar.
-   - **Open in Image Editor:** Görseli doğrudan Blender'ın Görsel Editörü (UV/Image Editor) içine yükler.
+Blender 5.0 ve 5.2 LTS için doğrudan Türkçe klavye kısayolu (`< / "`) ile Blender içinden arama çubuğunu açan, Google Görseller'de arama yapan ve tarayıcınızda (Chrome, Thorium, Firefox) herhangi bir görsele **Sağ Tık > Add to Blender** diyerek anında 3D sahnenize eklemenizi sağlayan komple köprü sistemi.
 
 ---
 
-## 🚀 Kurulum
+## 🚀 Hızlı Bakış ve İş Akışı
 
-### Yöntem 1: Doğrudan Blender İçinden (.zip ile)
-1. `blender_image_search.zip` dosyasını indirin.
-2. Blender'ı açın: `Edit > Preferences > Add-ons` sekmesine gidin.
-3. Sağ üstteki aşağı açılır menüden `Install from Disk...` seçeneğine tıklayın.
-4. `blender_image_search.zip` dosyasını seçin ve etkinleştirin (kutucuğu işaretleyin).
+1. **Blender'da Kısayola Basın:**
+   - Türkçe Q klavyede **`ESC` tuşunun hemen altındaki `< / "`** tuşuna (veya Sol Shift yanındaki `< / >` tuşuna) basın.
+   - Blender içinde arama kutusu açılır.
+   - Aramak istediğiniz kelimeyi yazıp **Enter**'a basın.
+   - Varsayılan tarayıcınızda (Thorium / Chrome / Firefox) doğrudan **Google Görseller** açılır.
 
-### Yöntem 2: Manuel Klasör Kurulumu
-Eklenti klasörünü Blender eklenti dizinine kopyalayın:
-- **Linux:** `~/.config/blender/5.0/scripts/addons/blender_image_search/`
-- **Windows:** `%APPDATA%\Blender Foundation\Blender\5.0\scripts\addons\blender_image_search\`
-- **macOS:** `~/Library/Application Support/Blender/5.0/scripts/addons/blender_image_search/`
-
----
-
-## 🛠️ Google Custom Search API Kurulumu (İsteğe Bağlı)
-> **Not:** Eklenti **Web / Bing** ve **Wikimedia** modunda hiçbir anahtar gerektirmeden tamamen ücretsiz ve sınırsız çalışır. Ancak doğrudan Google motorunu kullanmak isterseniz:
-
-1. [Google Cloud Console](https://console.cloud.google.com/) üzerinden ücretsiz bir proje açın ve **Custom Search API** servisini etkinleştirin.
-2. Credentials bölümünden bir **API Key** oluşturun.
-3. [Programmable Search Engine](https://programmablesearchengine.google.com/) adresine giderek yeni bir arama motoru oluşturun:
-   - "Search the entire web" seçeneğini açın.
-   - "Image search" seçeneğini **ON** yapın.
-   - Motor Kimliğini (**CX ID**) kopyalayın.
-4. Blender'da `Preferences > Add-ons > Image Search` ayarlarına gidip API Key ve Search Engine ID (CX) alanlarına yapıştırın.
+2. **Tarayıcıda Sağ Tıklayıp Sahneye Ekleyin:**
+   - Google Görseller'de istediğiniz resmi bulun.
+   - Resme sağ tıklayın:
+     - **Add to Blender ➔ As Reference Image (Empty):** 3D İmlecin konumuna referans görsel ekler.
+     - **Add to Blender ➔ As Image Plane (Mesh):** Resmin orijinal en-boy oranına göre UV haritalı, Principled BSDF materyalli bir 3D Plane oluşturur.
+     - **Add to Blender ➔ Apply to Active Material:** Seçili olan aktif objenin materyaline doku (Base Color) olarak atar.
 
 ---
 
-## 🧪 Test ve Doğrulama
-Eklenti, Blender 5.0.1 ve Blender 5.2.2 LTS sürümlerinde tam kapsamlı headless testlerle doğrulanmıştır:
-- Operatör kayıtları ve unregister mekanizması sıfır bellek sızıntısıyla çalışır.
-- Referans görsel ve materyal düğümleri (ShaderNodeTexImage) Blender 5.0 standartlarına tam uyumludur.
+## 🛠️ Kurulum Adımları
+
+### 1. Blender Eklentisi (Zaten Yüklendi)
+Eklenti dosyaları sisteminize kuruldu:
+- `~/.config/blender/5.0/scripts/addons/blender_web_search/`
+- `~/.config/blender/5.2/scripts/addons/blender_web_search/`
+
+Blender'ı açıp `Edit > Preferences > Add-ons` bölümünden **Web Image Search & Bridge** eklentisinin kutucuğunu işaretlemeniz yeterlidir. Eklenti açıldığında `http://127.0.0.1:9981` üzerinden güvenli yerel köprü sunucusu otomatik olarak çalışmaya başlar.
+
+---
+
+### 2. Tarayıcı Eklentisi Kurulumu
+
+#### A) Google Chrome / Thorium / Chromium / Brave:
+1. Tarayıcınızın adres çubuğuna şunu yazıp Enter'a basın:
+   `chrome://extensions`
+2. Sağ üst köşedeki **"Geliştirici modu" (Developer mode)** anahtarını açın.
+3. Sol üstte beliren **"Paketlenmemiş öğe yükle" (Load unpacked)** butonuna tıklayın.
+4. Şu klasörü seçin:
+   `/home/auxerov/blender-image-search/extension`
+5. Eklenti hemen aktifleşir! Tarayıcı araç çubuğundaki Blender simgesine tıklayarak bağlantı durumunu (`🟢 Online`) görebilirsiniz.
+
+#### B) Mozilla Firefox:
+1. Firefox adres çubuğuna şunu yazıp Enter'a basın:
+   `about:debugging#/runtime/this-firefox`
+2. **"Geçici Eklenti Yükle..." (Load Temporary Add-on...)** butonuna tıklayın.
+3. Şu dosyayı seçin:
+   `/home/auxerov/blender-image-search/extension_firefox/manifest.json`
+4. Eklenti yüklenir ve sağ tık menüsüne hemen eklenir!
+
+---
+
+## 📂 Hazır Paketler (.zip)
+
+Proje klasöründe hazır arşivlenmiş dosyalar bulunmaktadır:
+- **`blender_web_search.zip`**: Başka bir bilgisayara Blender eklentisi olarak yüklemek için.
+- **`add_to_blender_chrome.zip`**: Chrome / Thorium / Chromium için paketlenmiş eklenti.
+- **`add_to_blender_firefox.zip`**: Firefox için paketlenmiş eklenti.
+
+---
+
+## 🧪 Doğrulama ve Test Sonuçları
+
+Otomatik test paketi (`tests/test_bridge_addon.py`) ile hem Blender 5.0.1 hem de Blender 5.2.2 LTS üzerinde şu adımlar test edilmiş ve onaylanmıştır:
+1. Eklentinin hatasız yüklenmesi ve `ACCENT_GRAVE` / `GRLESS` kısayol haritalarının kaydı.
+2. HTTP Bridge sunucusunun `9981` portunda ayağa kalkması ve CORS isteklerini karşılaması.
+3. `POST /add_image` ile gönderilen görsellerin (URL veya Base64) arka planda indirilip Blender'ın ana iş parçacığında `Reference Empty`, `Image Plane` ve `Active Material` olarak hatasız oluşturulması.
+4. Eklenti kapatıldığında sunucunun ve portun temiz bir şekilde serbest bırakılması.
