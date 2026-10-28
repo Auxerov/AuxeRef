@@ -16,9 +16,25 @@ function extractGoogleHighRes(element) {
   return null;
 }
 
+function tryCanvasCapture(element) {
+  try {
+    const img = (element.tagName === "IMG") ? element : (element.querySelector ? element.querySelector("img") : null);
+    if (img && img.complete && img.naturalWidth > 16 && img.naturalHeight > 16) {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL("image/png");
+    }
+  } catch (e) {}
+  return "";
+}
+
 function findImageTargets(element) {
   if (!element) return { url: "", fallbackUrl: "" };
 
+  const canvasData = tryCanvasCapture(element);
   const googleHighRes = extractGoogleHighRes(element);
   let thumbUrl = "";
 
@@ -58,12 +74,12 @@ function findImageTargets(element) {
   }
 
   // Pinterest original high-res upgrade
-  let bestUrl = googleHighRes || thumbUrl;
-  let fallbackUrl = thumbUrl || googleHighRes;
+  let bestUrl = googleHighRes || thumbUrl || canvasData;
+  let fallbackUrl = canvasData || thumbUrl || googleHighRes;
 
   if (bestUrl && bestUrl.includes("pinimg.com")) {
     const upgraded = bestUrl.replace(/\/(?:236x|474x|564x|736x)\//, "/originals/");
-    return { url: upgraded, fallbackUrl: thumbUrl };
+    return { url: upgraded, fallbackUrl: fallbackUrl || thumbUrl };
   }
 
   return { url: bestUrl, fallbackUrl: fallbackUrl };

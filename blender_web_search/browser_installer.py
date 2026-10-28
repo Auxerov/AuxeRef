@@ -174,7 +174,7 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
 
     json_payload = {
         "external_crx": crx_path,
-        "external_version": "2.3.0"
+        "external_version": "2.4.0"
     }
     for browser_dir in [
         os.path.expanduser("~/.config/thorium"),

@@ -16,21 +16,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
-// Bitwarden Pattern: Hierarchical context menu structure
+// Top-level menu items: Browser automatically groups multiple items into a single parent menu named after the extension ("AuxeRef")
 const MENU_ITEMS = [
   {
-    id: "auxeref_root",
-    title: "AuxeRef",
-    contexts: ["all"]
-  },
-  {
-    parentId: "auxeref_root",
     id: "auxeref_open",
     title: "Open in Blender",
     contexts: ["all"]
   },
   {
-    parentId: "auxeref_root",
     id: "auxeref_quick",
     title: "Add to Quicks",
     contexts: ["all"]
@@ -131,15 +124,29 @@ async function blobToDataUrl(blob) {
 async function fetchImageAsDataUrl(url) {
   if (!url) return null;
   if (url.startsWith("data:image/")) return url;
+
+  // 1. Unrestricted fetch using extension host permissions
   try {
-    const res = await fetch(url, { mode: "cors", credentials: "omit" });
+    const res = await fetch(url);
     if (res.ok) {
       const blob = await res.blob();
-      if (blob.size > 100) {
+      if (blob.size > 50) {
         return await blobToDataUrl(blob);
       }
     }
   } catch (err) {}
+
+  // 2. Fallback fetch with credentials (for Pinterest / Google session images)
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.size > 50) {
+        return await blobToDataUrl(blob);
+      }
+    }
+  } catch (err) {}
+
   return null;
 }
 

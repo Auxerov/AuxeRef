@@ -33,15 +33,66 @@ def is_valid_image_bytes(data: bytes) -> bool:
         return False
     return True
 
+def detect_image_extension(content: bytes, url: str = "") -> str:
+    """Accurately detects image file extension from binary magic bytes or URL."""
+    if not content:
+        return ".png"
+
+    # PNG: \x89PNG\r\n\x1a\n
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    # JPEG: \xff\xd8\xff
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    # GIF: GIF87a or GIF89a
+    if content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+        return ".gif"
+    # WebP: RIFF....WEBP
+    if content.startswith(b"RIFF") and b"WEBP" in content[:16]:
+        return ".webp"
+    # BMP: BM
+    if content.startswith(b"BM"):
+        return ".bmp"
+    # TIFF: II*\x00 (little-endian) or MM\x00* (big-endian)
+    if content.startswith(b"II*\x00") or content.startswith(b"MM\x00*"):
+        return ".tiff"
+    # AVIF / HEIC: ftyp box
+    if b"ftyp" in content[:32]:
+        prefix_32 = content[:32]
+        if b"avif" in prefix_32 or b"avis" in prefix_32:
+            return ".avif"
+        if b"heic" in prefix_32 or b"heif" in prefix_32 or b"mif1" in prefix_32:
+            return ".heic"
+        return ".avif"
+    # SVG
+    prefix_lower = content[:512].lower().strip()
+    if b"<svg" in prefix_lower or (b"<?xml" in prefix_lower and b"<svg" in prefix_lower):
+        return ".svg"
+    # ICO
+    if content.startswith(b"\x00\x00\x01\x00"):
+        return ".ico"
+    # JPEG XL
+    if content.startswith(b"\xff\x0a") or content.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n"):
+        return ".jxl"
+
+    # Fallback to URL extension
+    clean_url = url.split("?")[0].lower()
+    for ext_candidate in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".bmp", ".tiff", ".heic", ".ico"]:
+        if clean_url.endswith(ext_candidate):
+            return ".jpg" if ext_candidate == ".jpeg" else ext_candidate
+
+    return ".img"
+
 def convert_to_png(input_path: str) -> str:
-    """Converts any unsupported image format (AVIF, WebP, HEIC, SVG, etc.) to standard PNG via ffmpeg."""
+    """Converts any unsupported image format (GIF, AVIF, WebP, HEIC, SVG, TIFF, BMP, etc.) to standard PNG via ffmpeg or Pillow."""
     png_path = os.path.splitext(input_path)[0] + "_converted.png"
     if os.path.exists(png_path) and os.path.getsize(png_path) > 100:
         return png_path
 
+    # 1. FFmpeg with -update 1 (critical for animated GIF, WebP, APNG)
     try:
         res = subprocess.run(
-            ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", png_path],
+            ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", "-update", "1", png_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=10
@@ -51,23 +102,46 @@ def convert_to_png(input_path: str) -> str:
     except Exception as e:
         print(f"[AuxeRef] ffmpeg conversion error: {e}")
 
+    # 2. FFmpeg fallback without -update 1
+    try:
+        res = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", png_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10
+        )
+        if res.returncode == 0 and os.path.exists(png_path) and os.path.getsize(png_path) > 100:
+            return png_path
+    except Exception:
+        pass
+
+    # 3. Pillow fallback (if available)
+    try:
+        from PIL import Image
+        with Image.open(input_path) as im:
+            im.convert("RGBA").save(png_path, "PNG")
+            if os.path.exists(png_path) and os.path.getsize(png_path) > 100:
+                return png_path
+    except Exception:
+        pass
+
     return input_path
 
 def convert_if_needed(filepath: str) -> str:
-    """Checks image format and converts unsupported or problematic formats (AVIF, WebP, SVG, HEIC, etc.) to PNG."""
+    """Checks image format and converts unsupported or problematic formats (GIF, WebP, AVIF, SVG, HEIC, etc.) to PNG."""
     try:
         with open(filepath, "rb") as f:
             header = f.read(64)
-        
+
         # Standard PNG is always good in Blender
         if header.startswith(b"\x89PNG\r\n\x1a\n"):
             return filepath
 
-        # Standard JPEG is always good in Blender
+        # Standard JPEG is generally good in Blender
         if header.startswith(b"\xff\xd8\xff"):
             return filepath
 
-        # Any other format (WebP, AVIF, HEIC, SVG, TIFF, BMP, etc.) -> Convert to PNG!
+        # Any other format (GIF, WebP, AVIF, HEIC, SVG, TIFF, BMP, ICO, unknown) -> Convert to PNG!
         return convert_to_png(filepath)
     except Exception as e:
         print(f"[AuxeRef] convert_if_needed error: {e}")
@@ -78,12 +152,31 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
     cache_dir = get_cache_dir()
     name = clean_name(title)
 
-    # 1. Base64 data URI
+    # 1. Base64 or URL-encoded data URI
     if url_or_data.startswith("data:image/"):
-        match = re.match(r"data:image/(\w+);base64,(.+)", url_or_data)
+        match = re.match(r"data:image/([a-zA-Z0-9\-\+\.]+);base64,(.+)", url_or_data)
         if match:
             raw_ext = match.group(1).lower()
-            ext = ".png" if "png" in raw_ext else (".jpg" if ("jpg" in raw_ext or "jpeg" in raw_ext) else f".{raw_ext}")
+            if "png" in raw_ext:
+                ext = ".png"
+            elif "jpg" in raw_ext or "jpeg" in raw_ext:
+                ext = ".jpg"
+            elif "gif" in raw_ext:
+                ext = ".gif"
+            elif "webp" in raw_ext:
+                ext = ".webp"
+            elif "avif" in raw_ext:
+                ext = ".avif"
+            elif "svg" in raw_ext:
+                ext = ".svg"
+            elif "bmp" in raw_ext:
+                ext = ".bmp"
+            elif "tiff" in raw_ext:
+                ext = ".tiff"
+            elif "heic" in raw_ext:
+                ext = ".heic"
+            else:
+                ext = ".img"
             img_data = base64.b64decode(match.group(2))
             h = hashlib.sha1(img_data).hexdigest()[:12]
             filepath = os.path.join(cache_dir, f"{name}_{h}{ext}")
@@ -91,7 +184,17 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
                 f.write(img_data)
             return convert_if_needed(filepath)
 
-    # 2. HTTP / HTTPS URL
+    # 2. Extract Google Images embedded imgurl parameter if present
+    target_main_url = url_or_data
+    if "imgurl=" in target_main_url:
+        try:
+            m = re.search(r"[?&]imgurl=([^&]+)", target_main_url)
+            if m:
+                target_main_url = urllib.parse.unquote(m.group(1))
+        except Exception:
+            pass
+
+    # 3. HTTP / HTTPS URL
     def fetch_url(target_url: str):
         target_url = target_url.strip()
         parsed = urllib.parse.urlparse(target_url)
@@ -122,7 +225,7 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
 
     content = None
     last_err = None
-    for attempt_url in [url_or_data, fallback_url]:
+    for attempt_url in [target_main_url, fallback_url, url_or_data]:
         if not attempt_url:
             continue
         try:
@@ -147,17 +250,8 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
     if not content:
         raise ValueError(f"Failed to download image from {url_or_data}: {last_err}")
 
-    # Determine extension from magic bytes
-    if content.startswith(b"\x89PNG\r\n\x1a\n"):
-        ext = ".png"
-    elif content.startswith(b"\xff\xd8\xff"):
-        ext = ".jpg"
-    elif content.startswith(b"RIFF") and b"WEBP" in content[:16]:
-        ext = ".webp"
-    elif b"ftyp" in content[:32]:
-        ext = ".avif"
-    else:
-        ext = ".img"
+    # Determine extension from comprehensive magic bytes
+    ext = detect_image_extension(content, target_main_url)
 
     url_hash = hashlib.sha1(url_or_data.encode("utf-8")).hexdigest()[:12]
     filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
@@ -170,7 +264,7 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
     """Loads image into Blender, ensuring non-pink valid texture data via automatic format conversion."""
     filepath = convert_if_needed(filepath)
     abs_path = os.path.abspath(filepath)
-    
+
     # Check already loaded
     for img in bpy.data.images:
         if img.filepath and os.path.abspath(bpy.path.abspath(img.filepath)) == abs_path:
@@ -178,8 +272,8 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
                 return img
 
     bimg = bpy.data.images.load(filepath, check_existing=False)
-    
-    # If Blender failed to decode (e.g. format unsupported or corrupt), auto-convert via ffmpeg
+
+    # If Blender failed to decode (e.g. format unsupported, pink texture, corrupt), auto-convert via ffmpeg
     if bimg.size[0] == 0 or not bimg.has_data:
         print(f"[AuxeRef] Blender could not decode {filepath} directly. Converting to PNG via ffmpeg...")
         try:
