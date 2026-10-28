@@ -160,23 +160,21 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
         os.path.expanduser("~/.config/chrome-flags.conf"),
     ]:
         try:
-            existing = ""
+            lines = []
             if os.path.exists(flags_file):
                 with open(flags_file, "r") as f:
-                    existing = f.read()
-            if ext_dir not in existing:
-                with open(flags_file, "w") as f:
-                    content = existing.strip()
-                    if content:
-                        content += "\n"
-                    content += flags_line + "\n"
-                    f.write(content)
+                    for line in f.read().splitlines():
+                        if not line.startswith("--load-extension"):
+                            lines.append(line)
+            lines.append(flags_line)
+            with open(flags_file, "w") as f:
+                f.write("\n".join(lines).strip() + "\n")
         except Exception:
             pass
 
     json_payload = {
         "external_crx": crx_path,
-        "external_version": "2.0.0"
+        "external_version": "2.2.0"
     }
     for browser_dir in [
         os.path.expanduser("~/.config/thorium"),

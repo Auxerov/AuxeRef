@@ -42,6 +42,17 @@ def add_quick_reference(title: str, url: str, filepath: str) -> list:
     save_quick_references(items)
     return items
 
+def update_quick_reference(index: int, title: str = "", url: str = "") -> list:
+    """Updates title and/or web URL of a quick reference item."""
+    items = load_quick_references()
+    if 0 <= index < len(items):
+        if title:
+            items[index]["title"] = title.strip()[:48]
+        if url:
+            items[index]["url"] = url.strip()
+        save_quick_references(items)
+    return items
+
 def remove_quick_reference(index: int) -> list:
     """Removes an item by index."""
     items = load_quick_references()

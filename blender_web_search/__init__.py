@@ -44,6 +44,12 @@ class AuxeRefPreferences(AddonPreferences):
         default="REFERENCE"
     )
 
+    direct_add_on_enter: BoolProperty(
+        name="Enter Basınca Bitirip Ekle (Direct Add on Enter)",
+        description="When enabled, if a URL or image link is entered in F8 and Enter is pressed, it directly downloads and adds it to the 3D scene",
+        default=True
+    )
+
     has_asked_browser_install: BoolProperty(
         name="Has Asked Browser Install",
         default=False
@@ -57,6 +63,7 @@ class AuxeRefPreferences(AddonPreferences):
         box.label(text="AuxeRef Native Bridge", icon="WORLD")
         box.label(text=f"Default Browser: {detected['name']}")
         box.prop(self, "default_mode")
+        box.prop(self, "direct_add_on_enter")
 
         col = box.column(align=True)
         col.operator("wm.auxeref_auto_install", text=f"Auto-Install Extension to {detected['name']}", icon="IMPORT")
@@ -94,8 +101,15 @@ class WM_OT_AuxeRefSearch(Operator):
         default="GOOGLE"
     )
 
+    direct_add: BoolProperty(
+        name="Bitirip Ekle (Direct Add)",
+        description="If checked, or if an image link is pasted, pressing Enter directly adds the image to Blender scene",
+        default=False
+    )
+
     def invoke(self, context, event):
         self.query = ""
+        self.direct_add = False
         return context.window_manager.invoke_props_dialog(self, width=440)
 
     def draw(self, context):
@@ -103,12 +117,15 @@ class WM_OT_AuxeRefSearch(Operator):
         
         # 1. Search Box with immediate focus
         col = layout.column(align=True)
-        col.label(text="Search Online Images:", icon="VIEWZOOM")
+        col.label(text="Search Online Images or Paste Image URL:", icon="VIEWZOOM")
         col.prop(self, "query", text="")
         
         layout.separator()
         row = layout.row(align=True)
         row.prop(self, "engine", expand=True)
+
+        row2 = layout.row(align=True)
+        row2.prop(self, "direct_add", text="Enter Basınca Bitirip Ekle (Direct Add)")
 
         # 2. Quick References (Saved Images)
         items = quick_manager.load_quick_references()
@@ -123,6 +140,10 @@ class WM_OT_AuxeRefSearch(Operator):
                 r = col.row(align=True)
                 op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
                 op.index = idx
+                op_link = r.operator("wm.auxeref_open_url", text="", icon="URL")
+                op_link.index = idx
+                op_edit = r.operator("wm.auxeref_edit_quick", text="", icon="GREASEPENCIL")
+                op_edit.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
         else:
@@ -134,6 +155,25 @@ class WM_OT_AuxeRefSearch(Operator):
         if not q:
             # If query is empty, simply close without error
             return {"FINISHED"}
+
+        pref = context.preferences.addons.get(__package__, None)
+        mode = pref.preferences.default_mode if pref else "REFERENCE"
+        is_url = q.startswith("http://") or q.startswith("https://") or q.startswith("data:image/")
+        do_direct_add = self.direct_add or is_url or (pref and pref.preferences.direct_add_on_enter and is_url)
+
+        if do_direct_add and is_url:
+            try:
+                clean_title = "DirectImage" if q.startswith("data:") else q.split("/")[-1].split("?")[0]
+                if not clean_title or len(clean_title) < 2:
+                    clean_title = "DirectImage"
+                local_img = importer.download_or_decode_image(q, clean_title)
+                obj, desc = importer.import_image_into_scene(local_img, mode=mode, title=clean_title, context=context)
+                quick_manager.add_quick_reference(obj.name, q, local_img)
+                self.report({"INFO"}, f"Added '{obj.name}' as {desc} into scene (rotated 90° on X)!")
+                return {"FINISHED"}
+            except Exception as e:
+                self.report({"ERROR"}, f"Direct Add failed: {e}")
+                return {"CANCELLED"}
 
         encoded = urllib.parse.quote_plus(q)
         if self.engine == "PINTEREST":
@@ -205,6 +245,57 @@ class WM_OT_AuxeRefClearQuick(Operator):
     def execute(self, context):
         quick_manager.clear_quick_references()
         self.report({"INFO"}, "Cleared all Quick References.")
+        return {"FINISHED"}
+
+
+class WM_OT_AuxeRefEditQuick(Operator):
+    """Edit the name and link of a saved Quick Reference"""
+    bl_idname = "wm.auxeref_edit_quick"
+    bl_label = "Edit Quick Reference"
+    bl_description = "Change the name or URL of this saved quick reference"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: IntProperty(default=0)
+    title: StringProperty(name="Name / Title", default="")
+    url: StringProperty(name="Web Link / URL", default="")
+
+    def invoke(self, context, event):
+        items = quick_manager.load_quick_references()
+        if 0 <= self.index < len(items):
+            self.title = items[self.index].get("title", "")
+            self.url = items[self.index].get("url", "")
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.prop(self, "title")
+        col.prop(self, "url")
+
+    def execute(self, context):
+        quick_manager.update_quick_reference(self.index, self.title, self.url)
+        self.report({"INFO"}, f"Updated Quick Reference: '{self.title}'")
+        return {"FINISHED"}
+
+
+class WM_OT_AuxeRefOpenUrl(Operator):
+    """Open source webpage of this quick reference in your browser"""
+    bl_idname = "wm.auxeref_open_url"
+    bl_label = "Open Source Link"
+    bl_options = {"REGISTER"}
+
+    index: IntProperty(default=0)
+
+    def execute(self, context):
+        items = quick_manager.load_quick_references()
+        if 0 <= self.index < len(items):
+            url = items[self.index].get("url", "")
+            if url:
+                try:
+                    webbrowser.open_new_tab(url)
+                    self.report({"INFO"}, f"Opened {url}")
+                except Exception as e:
+                    self.report({"ERROR"}, f"Could not open browser: {e}")
         return {"FINISHED"}
 
 
@@ -285,6 +376,10 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
                 r = col.row(align=True)
                 op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
                 op.index = idx
+                op_link = r.operator("wm.auxeref_open_url", text="", icon="URL")
+                op_link.index = idx
+                op_edit = r.operator("wm.auxeref_edit_quick", text="", icon="GREASEPENCIL")
+                op_edit.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
         else:
@@ -365,6 +460,8 @@ __REG_CLASSES = (
     AuxeRefPreferences,
     WM_OT_AuxeRefSearch,
     WM_OT_AuxeRefSpawnQuick,
+    WM_OT_AuxeRefEditQuick,
+    WM_OT_AuxeRefOpenUrl,
     WM_OT_AuxeRefRemoveQuick,
     WM_OT_AuxeRefClearQuick,
     WM_OT_AuxeRefAutoInstall,

@@ -129,7 +129,12 @@ def run_tests():
     assert created_obj.data is not None, "AuxeRefOpenTest image data is None!"
     assert created_obj.data.has_data, "Image has no data (pink texture)!"
     assert created_obj.data.size[0] > 0, "Image has zero dimensions!"
+    # Verify 90 degree rotation on X-axis
+    import math
+    rot_x_deg = math.degrees(created_obj.rotation_euler.x)
+    assert abs(rot_x_deg - 90.0) < 0.1, f"Expected 90 degree X-axis rotation, got {rot_x_deg}"
     print(f"  -> Verified scene object: '{created_obj.name}' with valid texture {created_obj.data.size[:]}")
+    print(f"  -> Verified upright rotation: {rot_x_deg:.1f}° on X-axis!")
 
     # 8. Test Browser -> Native Host invocation (QUICK_ADD action)
     print("[8] Testing Browser -> Native Host invocation for 'QUICK_ADD'...")
@@ -174,7 +179,27 @@ def run_tests():
     assert "FINISHED" in res
     spawned_obj = next((o for o in bpy.context.scene.objects if "AuxeRefQuickTest" in o.name), None)
     assert spawned_obj is not None, "Spawned quick reference object not found!"
-    print(f"  -> Spawned quick reference object into scene: '{spawned_obj.name}'")
+    spawned_rot_x = math.degrees(spawned_obj.rotation_euler.x)
+    assert abs(spawned_rot_x - 90.0) < 0.1, f"Expected 90 degree X-axis rotation on spawned quick, got {spawned_rot_x}"
+    print(f"  -> Spawned quick reference object into scene: '{spawned_obj.name}' with {spawned_rot_x:.1f}° X rotation.")
+
+    # 9b. Test wm.auxeref_edit_quick operator (Name & Link editing)
+    print("[9b] Testing Quick Reference editing (Title & URL)...")
+    res = bpy.ops.wm.auxeref_edit_quick(index=0, title="CustomRobotBlueprint", url="https://example.com/robot.png")
+    assert "FINISHED" in res
+    updated_items = quick_manager.load_quick_references()
+    assert updated_items[0]["title"] == "CustomRobotBlueprint"
+    assert updated_items[0]["url"] == "https://example.com/robot.png"
+    print(f"  -> Verified Quick reference editing: title='{updated_items[0]['title']}', url='{updated_items[0]['url']}'")
+
+    # 9c. Test Direct Add on Enter (Enter Basınca Bitirip Ekle)
+    print("[9c] Testing Direct Add on Enter ('Bitirip Ekle')...")
+    res = bpy.ops.wm.auxeref_search(query=test_data_uri, direct_add=True)
+    assert "FINISHED" in res
+    direct_obj = next((o for o in bpy.context.scene.objects if "DirectImage" in o.name), None)
+    assert direct_obj is not None, "Direct Add object was not created in scene!"
+    assert abs(math.degrees(direct_obj.rotation_euler.x) - 90.0) < 0.1
+    print(f"  -> Verified Direct Add on Enter: created '{direct_obj.name}' upright in 3D scene.")
 
     # 10. Test AVIF, WebP, and Problematic Format Conversion via ffmpeg
     print("[10] Testing AVIF / WebP universal auto-conversion to standard PNG...")

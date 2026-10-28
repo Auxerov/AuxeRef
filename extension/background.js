@@ -18,32 +18,44 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 
 function setupMenus() {
   chrome.contextMenus.removeAll(() => {
-    // Parent Context Menu: "AuxeRef"
+    // 1. Parent Context Menu: "AuxeRef"
     chrome.contextMenus.create({
       id: "auxeref_root",
       title: "AuxeRef",
-      contexts: ["image", "link", "page", "selection"]
-    });
+      contexts: ["all"]
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn("AuxeRef parent menu:", chrome.runtime.lastError.message);
+      }
 
-    // Submenu Item 1: "Open in Blender"
-    chrome.contextMenus.create({
-      parentId: "auxeref_root",
-      id: "auxeref_open",
-      title: "Open in Blender",
-      contexts: ["image", "link", "page", "selection"]
-    });
+      // 2. Submenu Item 1: "Open in Blender"
+      chrome.contextMenus.create({
+        parentId: "auxeref_root",
+        id: "auxeref_open",
+        title: "Open in Blender",
+        contexts: ["all"]
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn("Submenu Open in Blender:", chrome.runtime.lastError.message);
+        }
+      });
 
-    // Submenu Item 2: "Add to Quicks"
-    chrome.contextMenus.create({
-      parentId: "auxeref_root",
-      id: "auxeref_quick",
-      title: "Add to Quicks",
-      contexts: ["image", "link", "page", "selection"]
+      // 3. Submenu Item 2: "Add to Quicks"
+      chrome.contextMenus.create({
+        parentId: "auxeref_root",
+        id: "auxeref_quick",
+        title: "Add to Quicks",
+        contexts: ["all"]
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn("Submenu Add to Quicks:", chrome.runtime.lastError.message);
+        }
+      });
     });
   });
 }
 
-// Call on startup, install, and top-level
+// Call on installed, startup, and service worker wake-up
 chrome.runtime.onInstalled.addListener(setupMenus);
 chrome.runtime.onStartup.addListener(setupMenus);
 setupMenus();

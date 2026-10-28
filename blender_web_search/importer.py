@@ -1,6 +1,7 @@
 """Image downloading, caching, universal format conversion, and Blender data-block creation."""
 import os
 import re
+import math
 import base64
 import hashlib
 import tempfile
@@ -197,11 +198,12 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
     return bimg
 
 def create_reference_empty(bimg: bpy.types.Image, name: str, context):
-    """Creates an Empty image at the 3D Cursor."""
+    """Creates an Empty image at the 3D Cursor rotated 90 degrees on the X-axis (standing upright)."""
     empty = bpy.data.objects.new(name=name, object_data=None)
     empty.empty_display_type = "IMAGE"
     empty.data = bimg
     empty.location = context.scene.cursor.location
+    empty.rotation_euler = (math.radians(90.0), 0.0, 0.0)
 
     w, h = bimg.size[0], bimg.size[1]
     if w > 0 and h > 0:
@@ -237,6 +239,7 @@ def create_image_plane(bimg: bpy.types.Image, name: str, context):
 
     obj = bpy.data.objects.new(f"Plane_{name}", mesh)
     obj.location = context.scene.cursor.location
+    obj.rotation_euler = (math.radians(90.0), 0.0, 0.0)
     context.collection.objects.link(obj)
 
     # Material
