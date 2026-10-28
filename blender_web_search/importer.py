@@ -1,4 +1,4 @@
-"""Image downloading, caching, AVIF/WebP conversion, and Blender data-block creation."""
+"""Image downloading, caching, universal format conversion, and Blender data-block creation."""
 import os
 import re
 import base64
@@ -23,8 +23,17 @@ def clean_name(title: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     return cleaned[:48] if len(cleaned) > 48 else (cleaned or "WebImage")
 
+def is_valid_image_bytes(data: bytes) -> bool:
+    """Verifies that bytes are genuine image data and not an HTML 403/404 error page."""
+    if not data or len(data) < 64:
+        return False
+    prefix = data[:128].lower()
+    if b"<!doctype" in prefix or b"<html" in prefix or b"<?xml" in prefix or b"<error" in prefix:
+        return False
+    return True
+
 def convert_to_png(input_path: str) -> str:
-    """Converts any unsupported image format (AVIF, HEIC, etc.) to standard PNG via ffmpeg."""
+    """Converts any unsupported image format (AVIF, WebP, HEIC, SVG, etc.) to standard PNG via ffmpeg."""
     png_path = os.path.splitext(input_path)[0] + "_converted.png"
     if os.path.exists(png_path) and os.path.getsize(png_path) > 100:
         return png_path
@@ -33,122 +42,131 @@ def convert_to_png(input_path: str) -> str:
         res = subprocess.run(
             ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", png_path],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            timeout=10
         )
         if res.returncode == 0 and os.path.exists(png_path) and os.path.getsize(png_path) > 100:
             return png_path
     except Exception as e:
-        print(f"[AuxeRef] Conversion error: {e}")
+        print(f"[AuxeRef] ffmpeg conversion error: {e}")
 
     return input_path
 
-def download_or_decode_image(url_or_data: str, title: str = "") -> str:
-    """Saves image to disk from either a data URI or HTTP/HTTPS URL, auto-converting AVIF to PNG."""
+def convert_if_needed(filepath: str) -> str:
+    """Checks image format and converts unsupported or problematic formats (AVIF, WebP, SVG, HEIC, etc.) to PNG."""
+    try:
+        with open(filepath, "rb") as f:
+            header = f.read(64)
+        
+        # Standard PNG is always good in Blender
+        if header.startswith(b"\x89PNG\r\n\x1a\n"):
+            return filepath
+
+        # Standard JPEG is always good in Blender
+        if header.startswith(b"\xff\xd8\xff"):
+            return filepath
+
+        # Any other format (WebP, AVIF, HEIC, SVG, TIFF, BMP, etc.) -> Convert to PNG!
+        return convert_to_png(filepath)
+    except Exception as e:
+        print(f"[AuxeRef] convert_if_needed error: {e}")
+        return filepath
+
+def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: str = "") -> str:
+    """Saves image to disk from either a data URI or HTTP/HTTPS URL, auto-converting to standard PNG."""
     cache_dir = get_cache_dir()
     name = clean_name(title)
-    
+
     # 1. Base64 data URI
     if url_or_data.startswith("data:image/"):
         match = re.match(r"data:image/(\w+);base64,(.+)", url_or_data)
         if match:
-            ext = match.group(1).lower()
-            if ext == "jpeg":
-                ext = "jpg"
-            raw_b64 = match.group(2)
-            img_data = base64.b64decode(raw_b64)
+            raw_ext = match.group(1).lower()
+            ext = ".png" if "png" in raw_ext else (".jpg" if ("jpg" in raw_ext or "jpeg" in raw_ext) else f".{raw_ext}")
+            img_data = base64.b64decode(match.group(2))
             h = hashlib.sha1(img_data).hexdigest()[:12]
-            filepath = os.path.join(cache_dir, f"{name}_{h}.{ext}")
+            filepath = os.path.join(cache_dir, f"{name}_{h}{ext}")
             with open(filepath, "wb") as f:
                 f.write(img_data)
-            
-            # Check if AVIF
-            if b"ftypavif" in img_data[:32] or b"ftypmif1" in img_data[:32]:
-                filepath = convert_to_png(filepath)
-            return filepath
+            return convert_if_needed(filepath)
 
     # 2. HTTP / HTTPS URL
-    url = url_or_data.strip()
-    url_hash = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
-    
-    path_only = urllib.parse.urlparse(url).path
-    ext = os.path.splitext(path_only)[1].lower()
-    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tga", ".avif"]:
-        ext = ".jpg"
+    def fetch_url(target_url: str):
+        target_url = target_url.strip()
+        parsed = urllib.parse.urlparse(target_url)
 
-    filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
+        # Referer selection
+        if "pinimg.com" in target_url or "pinterest.com" in target_url:
+            referer = "https://www.pinterest.com/"
+        elif "gstatic.com" in target_url or "google.com" in target_url:
+            referer = "https://www.google.com/"
+        else:
+            referer = f"{parsed.scheme}://{parsed.netloc}/"
 
-    if os.path.exists(filepath) and os.path.getsize(filepath) > 500:
-        return convert_if_needed(filepath)
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": referer
+        }
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
 
-    # Determine appropriate Referer and User-Agent
-    referer = "https://www.google.com/"
-    if "pinimg.com" in url or "pinterest.com" in url:
-        referer = "https://www.pinterest.com/"
-
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Referer": referer
-    }
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(target_url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+            data = resp.read()
+            if not is_valid_image_bytes(data):
+                raise ValueError("Response was not a valid image (likely HTML 403/404)")
+            return data
 
     content = None
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-            content = resp.read()
-    except Exception as e:
-        # If Pinterest /originals/ failed with 403 or 404, fallback to /736x/
-        if "pinimg.com" in url and "/originals/" in url:
-            fallback_url = url.replace("/originals/", "/736x/")
+    last_err = None
+    for attempt_url in [url_or_data, fallback_url]:
+        if not attempt_url:
+            continue
+        try:
+            content = fetch_url(attempt_url)
+            break
+        except Exception as e:
+            last_err = e
+            # Try without referer if hotlink protected
             try:
-                req = urllib.request.Request(fallback_url, headers=headers)
-                with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-                    content = resp.read()
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                req = urllib.request.Request(attempt_url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                    data = resp.read()
+                    if is_valid_image_bytes(data):
+                        content = data
+                        break
             except Exception:
-                raise e
-        else:
-            raise e
+                pass
 
-    if not content or len(content) < 100:
-        raise ValueError("Downloaded content too small, invalid image.")
+    if not content:
+        raise ValueError(f"Failed to download image from {url_or_data}: {last_err}")
 
-    # Detect true format
-    is_avif = False
-    if content.startswith(b'\x89PNG'):
-        ext = '.png'
-    elif content.startswith(b'\xff\xd8\xff'):
-        ext = '.jpg'
-    elif content.startswith(b'RIFF') and b'WEBP' in content[:16]:
-        ext = '.webp'
-    elif b'ftypavif' in content[:32] or b'ftypmif1' in content[:32] or b'ftypisom' in content[:32]:
-        ext = '.avif'
-        is_avif = True
+    # Determine extension from magic bytes
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        ext = ".png"
+    elif content.startswith(b"\xff\xd8\xff"):
+        ext = ".jpg"
+    elif content.startswith(b"RIFF") and b"WEBP" in content[:16]:
+        ext = ".webp"
+    elif b"ftyp" in content[:32]:
+        ext = ".avif"
+    else:
+        ext = ".img"
 
+    url_hash = hashlib.sha1(url_or_data.encode("utf-8")).hexdigest()[:12]
     filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
     with open(filepath, "wb") as f:
         f.write(content)
 
-    if is_avif:
-        filepath = convert_to_png(filepath)
-
-    return filepath
-
-def convert_if_needed(filepath: str) -> str:
-    """Checks if file is AVIF and converts to PNG if so."""
-    try:
-        with open(filepath, "rb") as f:
-            header = f.read(32)
-        if b"ftypavif" in header or b"ftypmif1" in header or b"ftypisom" in header or b"avif" in header:
-            return convert_to_png(filepath)
-    except Exception:
-        pass
-    return filepath
+    return convert_if_needed(filepath)
 
 def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
-    """Loads image into Blender, ensuring non-pink valid texture data."""
+    """Loads image into Blender, ensuring non-pink valid texture data via automatic format conversion."""
     filepath = convert_if_needed(filepath)
     abs_path = os.path.abspath(filepath)
     
@@ -160,12 +178,19 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
 
     bimg = bpy.data.images.load(filepath, check_existing=False)
     
-    # If Blender failed to decode (e.g. AVIF or unrecognized), auto-convert to PNG and reload!
+    # If Blender failed to decode (e.g. format unsupported or corrupt), auto-convert via ffmpeg
     if bimg.size[0] == 0 or not bimg.has_data:
-        print(f"[AuxeRef] Blender could not decode {filepath}. Converting to PNG...")
-        bpy.data.images.remove(bimg)
+        print(f"[AuxeRef] Blender could not decode {filepath} directly. Converting to PNG via ffmpeg...")
+        try:
+            bpy.data.images.remove(bimg)
+        except Exception:
+            pass
         png_path = convert_to_png(filepath)
-        bimg = bpy.data.images.load(png_path, check_existing=True)
+        if png_path != filepath and os.path.exists(png_path):
+            bimg = bpy.data.images.load(png_path, check_existing=False)
+
+    if bimg.size[0] == 0 or not bimg.has_data:
+        raise ValueError(f"Could not decode valid image texture from {filepath}")
 
     if name:
         bimg.name = clean_name(name)

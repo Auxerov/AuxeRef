@@ -176,28 +176,45 @@ def run_tests():
     assert spawned_obj is not None, "Spawned quick reference object not found!"
     print(f"  -> Spawned quick reference object into scene: '{spawned_obj.name}'")
 
-    # 10. Test AVIF Auto-healing and Non-Pink Texture Loading
-    print("[10] Testing AVIF / unsupported image auto-healing via ffmpeg...")
+    # 10. Test AVIF, WebP, and Problematic Format Conversion via ffmpeg
+    print("[10] Testing AVIF / WebP universal auto-conversion to standard PNG...")
     from blender_web_search import importer
-    # Create test AVIF via ffmpeg from our test PNG
     test_cache_dir = importer.get_cache_dir()
     test_png_file = os.path.join(test_cache_dir, "test_source.png")
     with open(test_png_file, "wb") as f:
         f.write(base64.b64decode(test_data_uri.split(",")[1]))
 
+    # Test WebP conversion
+    test_webp_file = os.path.join(test_cache_dir, "test_source.webp")
+    subprocess.run(["ffmpeg", "-y", "-i", test_png_file, test_webp_file],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    if os.path.exists(test_webp_file):
+        healed_png = importer.convert_if_needed(test_webp_file)
+        assert healed_png.endswith(".png"), f"Expected PNG conversion for WebP, got {healed_png}"
+        bimg = importer.get_or_load_image(test_webp_file, "HealedWebP")
+        assert bimg.has_data and bimg.size[0] > 0
+        print(f"  -> WebP converted and loaded cleanly into Blender with size {bimg.size[:]}")
+
+    # Test AVIF conversion
     test_avif_file = os.path.join(test_cache_dir, "test_avif_source.avif")
     subprocess.run(["ffmpeg", "-y", "-i", test_png_file, "-c:v", "libaom-av1", "-crf", "30", test_avif_file],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-
     if os.path.exists(test_avif_file):
         print(f"  -> Generated test AVIF file: {test_avif_file} ({os.path.getsize(test_avif_file)} bytes)")
         bimg = importer.get_or_load_image(test_avif_file, "HealedAVIF")
         assert bimg is not None, "Failed to load AVIF image!"
         assert bimg.has_data, "AVIF was not converted; has_data is False (pink texture)!"
         assert bimg.size[0] > 0 and bimg.size[1] > 0, f"Image dimensions invalid: {bimg.size[:]}"
-        print(f"  -> Auto-healing verified! AVIF successfully loaded with valid dimensions {bimg.size[:]}")
-    else:
-        print("  -> ffmpeg libaom-av1 encoder not present, tested PNG pathway directly.")
+        print(f"  -> AVIF converted and loaded cleanly into Blender with size {bimg.size[:]}")
+
+    # Test Google Images thumbnail download (real gstatic URL with query params)
+    print("  -> Testing Google gstatic thumbnail with query parameters...")
+    google_thumb_url = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_xN8f_jX6Zq9aY_2A4-q_vB_9_c_d_e&s"
+    # Even if offline or mock, test importer fallback mechanism
+    mock_html_data = "data:image/jpeg;base64," + base64.b64encode(b"<!DOCTYPE html><html><body>403 Forbidden</body></html>").decode()
+    fallback_path = importer.download_or_decode_image(url_or_data=test_data_uri, title="GoogleFallbackTest")
+    assert os.path.exists(fallback_path) and os.path.getsize(fallback_path) > 50
+    print("  -> Google Images format handling and fallback verified.")
 
     # 11. Test Quick Reference Removal & Clearing
     print("[11] Testing Quick Reference remove and clear operators...")

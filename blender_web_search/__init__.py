@@ -112,24 +112,22 @@ class WM_OT_AuxeRefSearch(Operator):
 
         # 2. Quick References (Saved Images)
         items = quick_manager.load_quick_references()
+        layout.separator()
+        box = layout.box()
+        header_row = box.row()
+        header_row.label(text=f"Quicks / Saved References ({len(items)}):", icon="IMAGE_DATA")
         if items:
-            layout.separator()
-            box = layout.box()
-            header_row = box.row()
-            header_row.label(text=f"Quick References ({len(items)}):", icon="IMAGE_DATA")
-            header_row.operator("wm.auxeref_clear_quick", text="", icon="TRASH")
-
-            # Show quick items (up to 8 in dialog)
+            header_row.operator("wm.auxeref_clear_quick", text="Clear", icon="TRASH")
             col = box.column(align=True)
-            for idx, item in enumerate(items[:8]):
+            for idx, item in enumerate(items[:10]):
                 r = col.row(align=True)
-                op = r.operator("wm.auxeref_spawn_quick", text=item.get("title", f"Image #{idx+1}"), icon="RESTRICT_VIEW_OFF")
+                op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
                 op.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
-
-        box_tip = layout.box()
-        box_tip.label(text="Tip: In browser, right-click image -> AuxeRef -> Add to Quick!", icon="INFO")
+        else:
+            box.label(text="No saved references yet.", icon="INFO")
+            box.label(text="In browser, right click image -> AuxeRef -> Add to Quicks!")
 
     def execute(self, context):
         q = self.query.strip()
@@ -260,7 +258,7 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "AuxeRef"
-    bl_label = "AuxeRef"
+    bl_label = "AuxeRef & Quicks"
 
     def draw(self, context):
         layout = self.layout
@@ -279,21 +277,19 @@ class VIEW3D_PT_AuxeRefPanel(Panel):
         layout.separator()
         box = layout.box()
         row = box.row()
-        row.label(text=f"Quick References ({len(items)}):", icon="IMAGE_DATA")
+        row.label(text=f"Quicks ({len(items)}):", icon="IMAGE_DATA")
         if items:
-            row.operator("wm.auxeref_clear_quick", text="", icon="TRASH")
-
-        if not items:
-            box.label(text="No saved references yet.", icon="INFO")
-            box.label(text="Right-click in browser ➔ Add to Quick!")
-        else:
+            row.operator("wm.auxeref_clear_quick", text="Clear", icon="TRASH")
             col = box.column(align=True)
             for idx, item in enumerate(items):
                 r = col.row(align=True)
-                op = r.operator("wm.auxeref_spawn_quick", text=item.get("title", f"Image #{idx+1}"), icon="RESTRICT_VIEW_OFF")
+                op = r.operator("wm.auxeref_spawn_quick", text=f"Spawn: {item.get('title', f'Image #{idx+1}')}", icon="RESTRICT_VIEW_OFF")
                 op.index = idx
                 del_op = r.operator("wm.auxeref_remove_quick", text="", icon="X")
                 del_op.index = idx
+        else:
+            box.label(text="No saved references yet.", icon="INFO")
+            box.label(text="Right-click in browser ➔ Add to Quicks!")
 
 
 def draw_header_button(self, context):
@@ -333,14 +329,15 @@ def _check_inbox_timer():
 
                 action = payload.get("action", "OPEN")
                 url = payload.get("url")
+                fallback_url = payload.get("fallback_url", "")
                 title = payload.get("title", "AuxeRef")
 
                 if url:
-                    local_img = importer.download_or_decode_image(url, title)
+                    local_img = importer.download_or_decode_image(url, title, fallback_url=fallback_url)
 
                     if action == "QUICK_ADD":
                         quick_manager.add_quick_reference(title, url, local_img)
-                        print(f"[AuxeRef] Saved '{title}' to Quick References.")
+                        print(f"[AuxeRef] Saved '{title}' to Quicks.")
                     else:  # "OPEN"
                         pref = bpy.context.preferences.addons.get(__package__, None)
                         mode = pref.preferences.default_mode if pref else "REFERENCE"

@@ -4,12 +4,15 @@
  */
 
 const NATIVE_HOST = "com.auxerov.blender";
-let lastFoundImageByTab = {};
+let lastTargetsByTab = {};
 
 // Receive resolved image target from content script
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "BLENDER_IMAGE_TARGET" && sender.tab) {
-    lastFoundImageByTab[sender.tab.id] = msg.url;
+    lastTargetsByTab[sender.tab.id] = {
+      url: msg.url,
+      fallbackUrl: msg.fallbackUrl || msg.url
+    };
   }
 });
 
@@ -19,7 +22,7 @@ function setupMenus() {
     chrome.contextMenus.create({
       id: "auxeref_root",
       title: "AuxeRef",
-      contexts: ["image", "link", "page"]
+      contexts: ["image", "link", "page", "selection"]
     });
 
     // Submenu Item 1: "Open in Blender"
@@ -27,57 +30,91 @@ function setupMenus() {
       parentId: "auxeref_root",
       id: "auxeref_open",
       title: "Open in Blender",
-      contexts: ["image", "link", "page"]
+      contexts: ["image", "link", "page", "selection"]
     });
 
-    // Submenu Item 2: "Add to Quick"
+    // Submenu Item 2: "Add to Quicks"
     chrome.contextMenus.create({
       parentId: "auxeref_root",
       id: "auxeref_quick",
-      title: "Add to Quick",
-      contexts: ["image", "link", "page"]
+      title: "Add to Quicks",
+      contexts: ["image", "link", "page", "selection"]
     });
   });
 }
 
+// Call on startup, install, and top-level
 chrome.runtime.onInstalled.addListener(setupMenus);
 chrome.runtime.onStartup.addListener(setupMenus);
+setupMenus();
 
-function resolveTargetUrl(info, tab) {
+function resolveTarget(info, tab) {
+  let url = "";
+  let fallbackUrl = "";
+
   // 1. Content script target
-  if (tab && lastFoundImageByTab[tab.id]) {
-    const url = lastFoundImageByTab[tab.id];
-    delete lastFoundImageByTab[tab.id];
-    return url;
+  if (tab && lastTargetsByTab[tab.id]) {
+    url = lastTargetsByTab[tab.id].url;
+    fallbackUrl = lastTargetsByTab[tab.id].fallbackUrl;
+    delete lastTargetsByTab[tab.id];
   }
 
   // 2. Direct srcUrl
-  let targetUrl = info.srcUrl || "";
+  if (!url && info.srcUrl) {
+    url = info.srcUrl;
+    fallbackUrl = info.srcUrl;
+  }
 
   // 3. Google Images embedded imgurl parameter
   if (info.linkUrl && info.linkUrl.includes("imgurl=")) {
     try {
-      const match = info.linkUrl.match(/imgurl=([^&]+)/);
-      if (match) targetUrl = decodeURIComponent(match[1]);
-    } catch (e) {}
-  }
-
-  if (targetUrl && targetUrl.includes("imgurl=")) {
-    try {
-      const match = targetUrl.match(/imgurl=([^&]+)/);
-      if (match) targetUrl = decodeURIComponent(match[1]);
+      const match = info.linkUrl.match(/[?&]imgurl=([^&]+)/);
+      if (match) {
+        url = decodeURIComponent(match[1]);
+      }
     } catch (e) {}
   }
 
   // 4. Pinterest high-res upgrade
-  if (targetUrl && targetUrl.includes("pinimg.com")) {
-    targetUrl = targetUrl.replace(/\/(?:236x|474x|564x|736x)\//, "/originals/");
+  if (url && url.includes("pinimg.com")) {
+    url = url.replace(/\/(?:236x|474x|564x|736x)\//, "/originals/");
   }
 
-  return targetUrl || info.linkUrl || "";
+  return {
+    url: url || info.linkUrl || "",
+    fallbackUrl: fallbackUrl || url || ""
+  };
 }
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+async function blobToDataUrl(blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+  const mimeType = blob.type || "image/png";
+  return `data:${mimeType};base64,${base64}`;
+}
+
+async function fetchImageAsDataUrl(url) {
+  if (!url) return null;
+  if (url.startsWith("data:image/")) return url;
+  try {
+    const res = await fetch(url, { mode: "cors", credentials: "omit" });
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.size > 100) {
+        return await blobToDataUrl(blob);
+      }
+    }
+  } catch (err) {}
+  return null;
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const isActionOpen = (info.menuItemId === "auxeref_open");
   const isActionQuick = (info.menuItemId === "auxeref_quick");
 
@@ -85,7 +122,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return;
   }
 
-  const targetUrl = resolveTargetUrl(info, tab);
+  const { url: targetUrl, fallbackUrl } = resolveTarget(info, tab);
   if (!targetUrl) {
     notify("AuxeRef", "No image found under cursor.");
     return;
@@ -94,9 +131,21 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const pageTitle = (tab && tab.title) ? tab.title.split("-")[0].trim() : "WebImage";
   const actionType = isActionQuick ? "QUICK_ADD" : "OPEN";
 
+  // Try fetching in browser background to bypass hotlink & CORS blocks
+  let finalUrl = targetUrl;
+  let fetched = await fetchImageAsDataUrl(targetUrl);
+  if (!fetched && fallbackUrl && fallbackUrl !== targetUrl) {
+    fetched = await fetchImageAsDataUrl(fallbackUrl);
+  }
+  if (fetched) {
+    finalUrl = fetched;
+  }
+
   const payload = {
     action: actionType,
-    url: targetUrl,
+    url: finalUrl,
+    fallback_url: fallbackUrl || "",
+    original_url: targetUrl,
     title: pageTitle,
     pageUrl: (tab && tab.url) ? tab.url : ""
   };
@@ -104,9 +153,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   chrome.runtime.sendNativeMessage(NATIVE_HOST, payload, (response) => {
     if (chrome.runtime.lastError) {
       console.warn("Native messaging:", chrome.runtime.lastError.message);
-      notify("AuxeRef", isActionQuick ? "Saved to Quick References!" : "Sent to Blender!");
+      notify("AuxeRef", isActionQuick ? "Saved to Quicks!" : "Sent to Blender!");
     } else {
-      notify("AuxeRef", isActionQuick ? "Added to Quick References!" : "Opened in Blender!");
+      notify("AuxeRef", isActionQuick ? "Added to Quicks!" : "Opened in Blender!");
     }
   });
 });
