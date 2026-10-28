@@ -5,7 +5,7 @@ Author: Auxerov
 bl_info = {
     "name": "AuxeRef",
     "author": "Auxerov",
-    "version": (2, 4, 0),
+    "version": (1, 0, 0),
     "blender": (5, 0, 0),
     "location": "Shortcut: F8 (or View3D > Header), Browser Right-Click: AuxeRef",
     "description": "Instant Google Images & Pinterest search via F8 and right-click browser bridge for references.",
