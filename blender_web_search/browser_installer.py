@@ -1,184 +1,141 @@
-"""Automatic browser detection and extension installation for Blender Image Search."""
+"""Automatic Native Messaging Host and Browser Extension setup for Blender Image Bridge."""
 import os
-import sys
+import stat
+import json
 import shutil
 import subprocess
-import webbrowser
 import bpy
 
 EXTENSION_ID = "pplmekajjhbhhlhgpiplnghmmfoehmoi"
+NATIVE_HOST_NAME = "com.auxerov.blender"
+RECEIVER_SCRIPT_PATH = os.path.expanduser("~/.local/bin/blender_image_receiver.py")
+INBOX_DIR = "/tmp/blender_open_inbox"
+
+RECEIVER_SCRIPT_CONTENT = """#!/usr/bin/env python3
+\"\"\"Native Messaging Host connecting Chrome/Firefox to Blender without any network ports or web servers.\"\"\"
+import sys
+import json
+import struct
+import os
+import time
+
+INBOX_DIR = "/tmp/blender_open_inbox"
+
+def read_message():
+    raw_length = sys.stdin.buffer.read(4)
+    if len(raw_length) == 0:
+        return None
+    message_length = struct.unpack('@I', raw_length)[0]
+    message_bytes = sys.stdin.buffer.read(message_length)
+    return json.loads(message_bytes.decode('utf-8'))
+
+def send_message(message_content):
+    encoded_content = json.dumps(message_content).encode('utf-8')
+    encoded_length = struct.pack('@I', len(encoded_content))
+    sys.stdout.buffer.write(encoded_length)
+    sys.stdout.buffer.write(encoded_content)
+    sys.stdout.buffer.flush()
+
+def main():
+    os.makedirs(INBOX_DIR, exist_ok=True)
+    try:
+        msg = read_message()
+        if msg:
+            ts = int(time.time() * 1000)
+            target_path = os.path.join(INBOX_DIR, f"item_{ts}.json")
+            with open(target_path, "w", encoding="utf-8") as f:
+                json.dump(msg, f)
+            send_message({"status": "ok", "message": "Saved to Blender inbox"})
+    except Exception as e:
+        send_message({"status": "error", "message": str(e)})
+
+if __name__ == "__main__":
+    main()
+"""
+
+def ensure_native_host_installed():
+    """Installs receiver script and native messaging manifests across all browser profiles."""
+    os.makedirs(INBOX_DIR, exist_ok=True)
+
+    # 1. Install receiver script to ~/.local/bin/
+    bin_dir = os.path.dirname(RECEIVER_SCRIPT_PATH)
+    os.makedirs(bin_dir, exist_ok=True)
+    with open(RECEIVER_SCRIPT_PATH, "w", encoding="utf-8") as f:
+        f.write(RECEIVER_SCRIPT_CONTENT)
+    # chmod +x
+    st = os.stat(RECEIVER_SCRIPT_PATH)
+    os.chmod(RECEIVER_SCRIPT_PATH, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    # 2. Chrome / Thorium / Chromium native messaging manifest
+    chrome_manifest = {
+        "name": NATIVE_HOST_NAME,
+        "description": "Blender Image Bridge Native Host",
+        "path": RECEIVER_SCRIPT_PATH,
+        "type": "stdio",
+        "allowed_origins": [
+            f"chrome-extension://{EXTENSION_ID}/"
+        ]
+    }
+
+    chrome_dirs = [
+        os.path.expanduser("~/.config/thorium"),
+        os.path.expanduser("~/.config/chromium"),
+        os.path.expanduser("~/.config/google-chrome"),
+        os.path.expanduser("~/.config/BraveSoftware/Brave-Browser"),
+        os.path.expanduser("~/.config/microsoft-edge")
+    ]
+
+    for cdir in chrome_dirs:
+        nm_dir = os.path.join(cdir, "NativeMessagingHosts")
+        os.makedirs(nm_dir, exist_ok=True)
+        manifest_file = os.path.join(nm_dir, f"{NATIVE_HOST_NAME}.json")
+        with open(manifest_file, "w", encoding="utf-8") as f:
+            json.dump(chrome_manifest, f, indent=2)
+
+    # 3. Firefox native messaging manifest
+    firefox_manifest = {
+        "name": NATIVE_HOST_NAME,
+        "description": "Blender Image Bridge Native Host",
+        "path": RECEIVER_SCRIPT_PATH,
+        "type": "stdio",
+        "allowed_extensions": [
+            "add-to-blender@auxerov.local"
+        ]
+    }
+    ff_nm_dir = os.path.expanduser("~/.mozilla/native-messaging-hosts")
+    os.makedirs(ff_nm_dir, exist_ok=True)
+    with open(os.path.join(ff_nm_dir, f"{NATIVE_HOST_NAME}.json"), "w", encoding="utf-8") as f:
+        json.dump(firefox_manifest, f, indent=2)
+
+    return True
 
 def detect_default_browser() -> dict:
-    """Detects the operating system's default web browser."""
+    """Detects default browser name and family."""
     raw = ""
-    # 1. Try xdg-settings on Linux
     try:
-        raw = subprocess.check_output(
-            ["xdg-settings", "get", "default-web-browser"],
-            stderr=subprocess.DEVNULL
-        ).decode("utf-8").strip()
+        raw = subprocess.check_output(["xdg-settings", "get", "default-web-browser"], stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
         pass
 
-    # 2. Try xdg-mime query
     if not raw:
         try:
-            raw = subprocess.check_output(
-                ["xdg-mime", "query", "default", "x-scheme-handler/http"],
-                stderr=subprocess.DEVNULL
-            ).decode("utf-8").strip()
+            raw = subprocess.check_output(["xdg-mime", "query", "default", "x-scheme-handler/http"], stderr=subprocess.DEVNULL).decode().strip()
         except Exception:
             pass
 
-    # 3. Environment variable $BROWSER
     if not raw:
         raw = os.environ.get("BROWSER", "")
 
-    # 4. Fallback search installed binaries
-    if not raw:
-        for candidate in ["thorium-browser", "google-chrome", "chromium", "firefox", "brave-browser"]:
-            if shutil.which(candidate):
-                raw = candidate
-                break
-
     raw_lower = raw.lower()
-    
-    # Classification
     if any(k in raw_lower for k in ["firefox", "librewolf", "waterfox", "tor"]):
-        return {
-            "id": "firefox",
-            "name": "Mozilla Firefox",
-            "family": "firefox",
-            "target": "FIREFOX",
-            "raw": raw
-        }
+        return {"name": "Mozilla Firefox", "family": "firefox", "raw": raw}
     elif "thorium" in raw_lower:
-        return {
-            "id": "thorium",
-            "name": "Thorium Browser",
-            "family": "chromium",
-            "target": "CHROME",
-            "raw": raw,
-            "config_dirs": [os.path.expanduser("~/.config/thorium")]
-        }
-    elif "google-chrome" in raw_lower or "chrome" in raw_lower:
-        return {
-            "id": "chrome",
-            "name": "Google Chrome",
-            "family": "chromium",
-            "target": "CHROME",
-            "raw": raw,
-            "config_dirs": [os.path.expanduser("~/.config/google-chrome")]
-        }
+        return {"name": "Thorium Browser", "family": "chromium", "raw": raw}
+    elif "chrome" in raw_lower:
+        return {"name": "Google Chrome", "family": "chromium", "raw": raw}
     elif "chromium" in raw_lower:
-        return {
-            "id": "chromium",
-            "name": "Chromium",
-            "family": "chromium",
-            "target": "CHROME",
-            "raw": raw,
-            "config_dirs": [os.path.expanduser("~/.config/chromium")]
-        }
+        return {"name": "Chromium", "family": "chromium", "raw": raw}
     elif "brave" in raw_lower:
-        return {
-            "id": "brave",
-            "name": "Brave Browser",
-            "family": "chromium",
-            "target": "CHROME",
-            "raw": raw,
-            "config_dirs": [os.path.expanduser("~/.config/BraveSoftware/Brave-Browser")]
-        }
+        return {"name": "Brave Browser", "family": "chromium", "raw": raw}
     else:
-        # Default Chromium family
-        return {
-            "id": "chromium_generic",
-            "name": "Chromium / Chrome",
-            "family": "chromium",
-            "target": "CHROME",
-            "raw": raw or "unknown",
-            "config_dirs": [
-                os.path.expanduser("~/.config/thorium"),
-                os.path.expanduser("~/.config/chromium"),
-                os.path.expanduser("~/.config/google-chrome")
-            ]
-        }
-
-def install_extension(target: str = "AUTO") -> tuple:
-    """Installs or configures the extension for the requested or default browser."""
-    detected = detect_default_browser()
-    actual_target = detected["target"] if target == "AUTO" else target
-
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    chrome_ext_dir = os.path.join(base_dir, "extension_chrome")
-    firefox_ext_dir = os.path.join(base_dir, "extension_firefox")
-    firefox_manifest = os.path.join(firefox_ext_dir, "manifest.json")
-    crx_path = os.path.join(base_dir, "extension.crx")
-
-    # If directories aren't in addon dir, check parent repo dir
-    if not os.path.exists(chrome_ext_dir):
-        parent_dir = os.path.dirname(base_dir)
-        chrome_ext_dir = os.path.join(parent_dir, "extension")
-        firefox_ext_dir = os.path.join(parent_dir, "extension_firefox")
-        firefox_manifest = os.path.join(firefox_ext_dir, "manifest.json")
-        crx_path = os.path.join(parent_dir, "extension.crx")
-
-    if actual_target == "CHROME":
-        # 1. Setup External Extensions JSON for all Chromium profiles found
-        candidates = [
-            os.path.expanduser("~/.config/thorium"),
-            os.path.expanduser("~/.config/chromium"),
-            os.path.expanduser("~/.config/google-chrome"),
-            os.path.expanduser("~/.config/BraveSoftware/Brave-Browser"),
-            os.path.expanduser("~/.config/microsoft-edge")
-        ]
-        
-        json_content = f'{{\n  "external_crx": "{crx_path}",\n  "external_version": "1.0.0"\n}}\n'
-        configured_paths = []
-        for cdir in candidates:
-            if os.path.exists(cdir):
-                ext_dir = os.path.join(cdir, "External Extensions")
-                os.makedirs(ext_dir, exist_ok=True)
-                json_file = os.path.join(ext_dir, f"{EXTENSION_ID}.json")
-                try:
-                    with open(json_file, "w") as f:
-                        f.write(json_content)
-                    configured_paths.append(cdir)
-                except Exception:
-                    pass
-
-        # 2. Copy the unpacked extension folder path to clipboard
-        try:
-            bpy.context.window_manager.clipboard = chrome_ext_dir
-        except Exception:
-            pass
-
-        # 3. Open interactive setup page in default browser
-        from . import bridge_server
-        port = bridge_server.get_active_port()
-        setup_url = f"http://127.0.0.1:{port}/setup?browser=chrome&name={detected['name']}"
-        try:
-            webbrowser.open_new_tab(setup_url)
-        except Exception:
-            pass
-
-        browser_name = detected["name"]
-        msg = f"Configured for {browser_name}. Setup page opened in browser!"
-        return True, msg
-
-    else:  # FIREFOX
-        # 1. Copy manifest path to clipboard for about:debugging
-        try:
-            bpy.context.window_manager.clipboard = firefox_manifest
-        except Exception:
-            pass
-
-        # 2. Open interactive setup page in browser
-        from . import bridge_server
-        port = bridge_server.get_active_port()
-        setup_url = f"http://127.0.0.1:{port}/setup?browser=firefox"
-        try:
-            webbrowser.open_new_tab(setup_url)
-        except Exception:
-            pass
-
-        return True, "Configured for Mozilla Firefox. Setup page opened in browser!"
+        return {"name": "Chromium / Chrome", "family": "chromium", "raw": raw}

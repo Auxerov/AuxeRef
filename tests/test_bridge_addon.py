@@ -1,15 +1,15 @@
-"""Automated test for blender_web_search add-on, HTTP bridge server, and auto-installer."""
+"""Automated test for native 'Open in Blender' bridge, Pinterest & Google search, and zero-port architecture."""
 import os
 import sys
 import time
 import json
-import urllib.request
-import urllib.parse
+import struct
+import subprocess
 import bpy
 
 def run_tests():
     print("=" * 60)
-    print(f"RUNNING WEB IMAGE SEARCH & BRIDGE TESTS ON BLENDER {bpy.app.version_string}")
+    print(f"RUNNING NATIVE 'OPEN IN BLENDER' TESTS ON BLENDER {bpy.app.version_string}")
     print("=" * 60)
 
     # 1. Enable Add-on
@@ -21,50 +21,21 @@ def run_tests():
         print(f"FAILED to enable addon: {e}")
         sys.exit(1)
 
-    time.sleep(0.5)  # Allow server thread to start
-    from blender_web_search import bridge_server
-    port = bridge_server.get_active_port()
-    print(f"  -> Testing on active port: {port}")
+    # 2. Check Native Host setup
+    print("[2] Verifying Native Messaging Host installation...")
+    receiver_path = os.path.expanduser("~/.local/bin/blender_image_receiver.py")
+    assert os.path.exists(receiver_path), f"Receiver script missing at {receiver_path}"
+    assert os.access(receiver_path, os.X_OK), "Receiver script is not executable!"
+    print("  -> Receiver script installed and executable.")
 
-    # 2. Check HTTP bridge server status endpoint
-    print(f"[2] Testing GET http://127.0.0.1:{port}/status...")
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/status")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            print(f"  -> Server responded: {data}")
-            assert data.get("status") == "online", f"Unexpected status: {data}"
-    except Exception as e:
-        print(f"FAILED to query bridge server: {e}")
-        sys.exit(1)
+    chrome_manifest = os.path.expanduser("~/.config/thorium/NativeMessagingHosts/com.auxerov.blender.json")
+    assert os.path.exists(chrome_manifest), "Chrome native host manifest missing"
+    firefox_manifest = os.path.expanduser("~/.mozilla/native-messaging-hosts/com.auxerov.blender.json")
+    assert os.path.exists(firefox_manifest), "Firefox native host manifest missing"
+    print("  -> Native messaging manifests verified for both Chrome/Thorium and Firefox.")
 
-    # 3. Test Auto Browser Detection and Installer Operator
-    print("[3] Testing Browser Detection & Auto-Installer Operator...")
-    from blender_web_search import browser_installer
-    detected = browser_installer.detect_default_browser()
-    print(f"  -> Detected default browser: {detected['name']} (target={detected['target']})")
-    assert "target" in detected and detected["target"] in ("CHROME", "FIREFOX"), f"Invalid detected browser info: {detected}"
-
-    res = bpy.ops.wm.install_browser_extension(target_browser="AUTO")
-    assert "FINISHED" in res, f"install_browser_extension operator failed: {res}"
-    print("  -> Auto-installer operator executed successfully!")
-
-    # 4. Test GET /setup and GET /download/firefox.xpi endpoints
-    print("[4] Testing server /setup and /download endpoints...")
-    req_setup = urllib.request.Request(f"http://127.0.0.1:{port}/setup?browser=chrome")
-    with urllib.request.urlopen(req_setup, timeout=5) as resp:
-        html = resp.read().decode("utf-8")
-        assert "Blender Image Bridge Setup" in html, "Setup page missing expected title"
-        print("  -> GET /setup returned valid HTML setup page")
-
-    req_xpi = urllib.request.Request(f"http://127.0.0.1:{port}/download/firefox.xpi")
-    with urllib.request.urlopen(req_xpi, timeout=5) as resp:
-        xpi_data = resp.read()
-        assert len(xpi_data) > 1000, "XPI download returned empty/corrupted data"
-        print(f"  -> GET /download/firefox.xpi returned valid XPI package ({len(xpi_data)} bytes)")
-
-    # 5. Verify Keymap registration
-    print("[5] Verifying Turkish shortcut keymaps (< / \")...")
+    # 3. Verify Keymap registration
+    print("[3] Verifying Turkish shortcut keymaps (< / \")...")
     from blender_web_search import addon_keymaps
     print(f"  -> Registered {len(addon_keymaps)} keymap items")
     assert len(addon_keymaps) >= 2, f"Expected at least 2 keymap items, got {len(addon_keymaps)}"
@@ -73,8 +44,19 @@ def run_tests():
     assert "ACCENT_GRAVE" in types, "ACCENT_GRAVE keymap not registered!"
     assert "GRLESS" in types, "GRLESS keymap not registered!"
 
-    # 6. Generate base64 test image
-    import struct, zlib, base64
+    # 4. Test Search operator with Pinterest & Google
+    print("[4] Testing Search operator with Pinterest & Google...")
+    wm = bpy.context.window_manager
+    # Google Images search
+    res = bpy.ops.wm.web_image_search(query="blender logo", engine="GOOGLE")
+    assert "FINISHED" in res
+    # Pinterest search
+    res = bpy.ops.wm.web_image_search(query="game art concept", engine="PINTEREST")
+    assert "FINISHED" in res
+    print("  -> Both Google Images and Pinterest search operators executed successfully.")
+
+    # 5. Generate base64 test image
+    import zlib, base64
     def make_png_data_uri():
         def png_chunk(chunk_type, data):
             return struct.pack('>I', len(data)) + chunk_type + data + struct.pack('>I', zlib.crc32(chunk_type + data) & 0xffffffff)
@@ -82,7 +64,7 @@ def run_tests():
         for y in range(16):
             raw.append(0)
             for x in range(16):
-                raw.extend(b'\xff\x20\x20\xff') # Red RGBA
+                raw.extend(b'\x30\x80\xe0\xff') # Blue RGBA
         header = b'\x89PNG\r\n\x1a\n'
         ihdr = png_chunk(b'IHDR', struct.pack('>IIBBBBB', 16, 16, 8, 6, 0, 0, 0))
         idat = png_chunk(b'IDAT', zlib.compress(bytes(raw)))
@@ -92,102 +74,66 @@ def run_tests():
 
     test_data_uri = make_png_data_uri()
 
-    from blender_web_search import bridge_server
-    def flush_bridge_queue():
-        bridge_server._process_queue()
-
-    # 7. Test POST /add_image as REFERENCE
-    print("[7] Testing POST /add_image (REFERENCE mode)...")
+    # 6. Simulate Browser Native Messaging invocation
+    print("[6] Testing Browser -> Native Host invocation (stdin pipe)...")
     payload = {
         "url": test_data_uri,
-        "mode": "REFERENCE",
-        "title": "TestRefImage"
+        "title": "OneClickTestImage"
     }
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/add_image",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+    encoded = json.dumps(payload).encode("utf-8")
+    native_input = struct.pack("@I", len(encoded)) + encoded
+
+    proc = subprocess.Popen(
+        [sys.executable, receiver_path],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        assert res.get("status") == "ok", f"Unexpected response: {res}"
+    stdout, stderr = proc.communicate(input=native_input)
+    assert proc.returncode == 0, f"Receiver script failed: {stderr}"
+    
+    # Check response from receiver
+    resp_len = struct.unpack("@I", stdout[:4])[0]
+    resp_data = json.loads(stdout[4:4+resp_len].decode("utf-8"))
+    assert resp_data.get("status") == "ok"
+    print(f"  -> Native host responded: {resp_data}")
 
-    flush_bridge_queue()
+    # 7. Check that item was placed in Blender inbox and process it
+    print("[7] Checking Blender inbox processing...")
+    inbox_dir = "/tmp/blender_open_inbox"
+    inbox_files = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
+    print(f"  -> Inbox contains {len(inbox_files)} files: {inbox_files}")
+    assert len(inbox_files) > 0, "No item found in inbox!"
 
-    ref_obj = next((o for o in bpy.context.scene.objects if "TestRefImage" in o.name), None)
-    assert ref_obj is not None, "Reference Empty object was not created!"
-    assert ref_obj.type == "EMPTY", f"Expected EMPTY, got {ref_obj.type}"
-    assert ref_obj.empty_display_type == "IMAGE", f"Expected IMAGE empty, got {ref_obj.empty_display_type}"
-    assert ref_obj.data is not None, "Empty data image is None!"
-    print(f"  -> Reference object created successfully: '{ref_obj.name}' with image '{ref_obj.data.name}'")
+    # Trigger Blender inbox timer loop
+    from blender_web_search import _check_inbox_timer
+    _check_inbox_timer()
 
-    # 8. Test POST /add_image as PLANE
-    print("[8] Testing POST /add_image (PLANE mode)...")
-    payload = {
-        "url": test_data_uri,
-        "mode": "PLANE",
-        "title": "TestPlaneImage"
-    }
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/add_image",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        assert res.get("status") == "ok"
+    # Verify inbox is cleaned
+    remaining = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
+    assert len(remaining) == 0, f"Inbox should be empty after processing, found {remaining}"
 
-    flush_bridge_queue()
+    # Verify Blender scene object was created
+    created_obj = next((o for o in bpy.context.scene.objects if "OneClickTestImage" in o.name), None)
+    assert created_obj is not None, "Image was not created in Blender scene!"
+    print(f"  -> Verified scene object created in Blender: '{created_obj.name}' (type={created_obj.type})")
 
-    plane_obj = next((o for o in bpy.context.scene.objects if "Plane_TestPlaneImage" in o.name), None)
-    assert plane_obj is not None, "Plane object was not created!"
-    assert plane_obj.type == "MESH", f"Expected MESH, got {plane_obj.type}"
-    assert len(plane_obj.data.materials) > 0, "Plane object has no material assigned!"
-    mat = plane_obj.data.materials[0]
-    tex_node = next((n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"), None)
-    assert tex_node is not None, "Plane material missing TEX_IMAGE node!"
-    print(f"  -> Plane object created successfully: '{plane_obj.name}' with material '{mat.name}'")
+    # 8. Test Pinterest URL resolution logic
+    print("[8] Testing Pinterest image download handling...")
+    from blender_web_search import importer
+    # Test clean real Pinterest image URL
+    pin_test_url = "https://i.pinimg.com/originals/d5/3b/01/d53b014d86a6b6761bf649a0ed813c2b.png"
+    downloaded_path = importer.download_or_decode_image(pin_test_url, "PinterestPin")
+    assert os.path.exists(downloaded_path) and os.path.getsize(downloaded_path) > 1000
+    print(f"  -> Pinterest image downloaded successfully to: {downloaded_path} ({os.path.getsize(downloaded_path)} bytes)")
 
-    # 9. Test POST /add_image as MATERIAL
-    print("[9] Testing POST /add_image (MATERIAL mode)...")
-    bpy.ops.mesh.primitive_cube_add(location=(10, 0, 0))
-    cube = bpy.context.active_object
-    payload = {
-        "url": test_data_uri,
-        "mode": "MATERIAL",
-        "title": "TestMaterialImage"
-    }
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/add_image",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        assert res.get("status") == "ok"
-
-    flush_bridge_queue()
-
-    assert len(cube.data.materials) > 0, "Cube has no material after apply!"
-    cube_mat = cube.data.materials[0]
-    tex_node = next((n for n in cube_mat.node_tree.nodes if n.type == "TEX_IMAGE"), None)
-    assert tex_node is not None, "Cube material missing TEX_IMAGE node!"
-    print(f"  -> Applied image texture to cube active material successfully!")
-
-    # 10. Test Addon disable and server shutdown
-    print("[10] Disabling addon and testing server shutdown...")
+    # 9. Clean unregister
+    print("[9] Testing clean unregister...")
     bpy.ops.preferences.addon_disable(module="blender_web_search")
-    time.sleep(0.5)
-
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/status")
-        with urllib.request.urlopen(req, timeout=1) as resp:
-            assert False, "Server should have been closed on disable!"
-    except Exception:
-        print("  -> Bridge server stopped cleanly.")
+    print("  -> Addon unregistered cleanly.")
 
     print("=" * 60)
-    print("ALL TESTS PASSED SUCCESSFULLY!")
+    print("ALL NATIVE 'OPEN IN BLENDER' TESTS PASSED SUCCESSFULLY!")
     print("=" * 60)
 
 if __name__ == "__main__":

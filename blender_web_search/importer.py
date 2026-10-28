@@ -58,32 +58,52 @@ def download_or_decode_image(url_or_data: str, title: str = "") -> str:
     if os.path.exists(filepath) and os.path.getsize(filepath) > 500:
         return filepath
 
+    # Determine appropriate Referer and User-Agent
+    referer = "https://www.google.com/"
+    if "pinimg.com" in url or "pinterest.com" in url:
+        referer = "https://www.pinterest.com/"
+
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Referer": "https://www.google.com/"
+        "Referer": referer
     }
-    req = urllib.request.Request(url, headers=headers)
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-        content = resp.read()
-        if len(content) < 100:
-            raise ValueError(f"Downloaded content too small ({len(content)} bytes), invalid image.")
+    content = None
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            content = resp.read()
+    except Exception as e:
+        # If Pinterest /originals/ failed with 403 or 404, fallback to /736x/
+        if "pinimg.com" in url and "/originals/" in url:
+            fallback_url = url.replace("/originals/", "/736x/")
+            try:
+                req = urllib.request.Request(fallback_url, headers=headers)
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                    content = resp.read()
+            except Exception:
+                raise e
+        else:
+            raise e
+
+    if not content or len(content) < 100:
+        raise ValueError(f"Downloaded content too small, invalid image.")
         
-        # Detect true image type from magic bytes if possible
-        if content.startswith(b'\x89PNG'):
-            ext = '.png'
-        elif content.startswith(b'\xff\xd8\xff'):
-            ext = '.jpg'
-        elif content.startswith(b'RIFF') and b'WEBP' in content[:16]:
-            ext = '.webp'
-            
-        filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
-        with open(filepath, "wb") as f:
-            f.write(content)
+    # Detect true image type from magic bytes if possible
+    if content.startswith(b'\x89PNG'):
+        ext = '.png'
+    elif content.startswith(b'\xff\xd8\xff'):
+        ext = '.jpg'
+    elif content.startswith(b'RIFF') and b'WEBP' in content[:16]:
+        ext = '.webp'
+        
+    filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
+    with open(filepath, "wb") as f:
+        f.write(content)
 
     return filepath
 
