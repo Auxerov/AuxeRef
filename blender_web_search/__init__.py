@@ -8,7 +8,7 @@ Uses native OS messaging: NO network ports, NO webservers.
 bl_info = {
     "name": "Web Image Search & Bridge",
     "author": "Auxerov",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (5, 0, 0),
     "location": "Shortcut: < / \" (or View3D > Header), Browser Right-Click",
     "description": "Search Google Images & Pinterest via shortcut, then right-click images in browser to Open in Blender in one click.",
@@ -20,7 +20,7 @@ import json
 import webbrowser
 import urllib.parse
 import bpy
-from bpy.props import StringProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty
 from bpy.types import Operator, AddonPreferences
 
 from . import importer
@@ -43,6 +43,11 @@ class WebSearchPreferences(AddonPreferences):
         default="REFERENCE"
     )
 
+    has_asked_browser_install: BoolProperty(
+        name="Has Asked Browser Install",
+        default=False
+    )
+
     def draw(self, context):
         layout = self.layout
         detected = browser_installer.detect_default_browser()
@@ -51,6 +56,9 @@ class WebSearchPreferences(AddonPreferences):
         box.label(text="Open in Blender Bridge", icon="WORLD")
         box.label(text=f"Default Browser: {detected['name']}")
         box.prop(self, "default_mode")
+
+        col = box.column(align=True)
+        col.operator("wm.auto_install_browser_extension", text=f"Auto-Install Extension to {detected['name']}", icon="IMPORT")
 
         box2 = layout.box()
         box2.label(text="How to use:", icon="INFO")
@@ -61,6 +69,51 @@ class WebSearchPreferences(AddonPreferences):
         box3.label(text="Shortcut Information", icon="KEYINGSET")
         box3.label(text="Default Shortcut: < / \" key (Turkish keyboard under ESC or next to Shift).")
         box3.label(text="Also accessible from 3D Viewport Header Search Icon or F3 -> 'Search Images'.")
+
+
+class WM_OT_AutoInstallExtension(Operator):
+    """Automatically install 'Open in Blender' extension into default browser without manual loading"""
+    bl_idname = "wm.auto_install_browser_extension"
+    bl_label = "Install Browser Extension"
+    bl_description = "Configure 'Open in Blender' extension automatically in default browser"
+    bl_options = {"REGISTER"}
+
+    restart_browser: BoolProperty(
+        name="Restart Browser Now",
+        description="Restart browser to activate immediately (restores all open tabs)",
+        default=True
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=480)
+
+    def draw(self, context):
+        layout = self.layout
+        detected = browser_installer.detect_default_browser()
+
+        box = layout.box()
+        box.label(text=f"Detected Browser: {detected['name']}", icon="WORLD")
+        box.label(text="Install 'Open in Blender' extension in one click.")
+
+        layout.separator()
+        layout.prop(self, "restart_browser")
+
+        box2 = layout.box()
+        box2.label(text="No manual steps needed:", icon="CHECKMARK")
+        box2.label(text="• The extension is installed automatically into your browser.")
+        box2.label(text="• If restarted, all your open tabs and windows will be restored.")
+
+    def execute(self, context):
+        pref = context.preferences.addons.get(__package__, None)
+        if pref:
+            pref.preferences.has_asked_browser_install = True
+
+        success, msg = browser_installer.auto_install_all(restart_browser=self.restart_browser)
+        if success:
+            self.report({"INFO"}, msg)
+        else:
+            self.report({"WARNING"}, msg)
+        return {"FINISHED"}
 
 
 class WM_OT_WebImageSearch(Operator):
@@ -156,7 +209,6 @@ def _check_inbox_timer():
                 with open(filepath, "r", encoding="utf-8") as f:
                     payload = json.load(f)
                 
-                # Delete immediately to avoid duplicate processing
                 try:
                     os.remove(filepath)
                 except Exception:
@@ -190,6 +242,7 @@ def _check_inbox_timer():
 
 __REG_CLASSES = (
     WebSearchPreferences,
+    WM_OT_AutoInstallExtension,
     WM_OT_WebImageSearch,
 )
 
@@ -222,6 +275,20 @@ def register():
         addon_keymaps.append((km_v3d, kmi3))
         kmi4 = km_v3d.keymap_items.new("wm.web_image_search", type="GRLESS", value="PRESS")
         addon_keymaps.append((km_v3d, kmi4))
+
+    # Automatic prompt on first run (non-headless only)
+    def _prompt_auto_install():
+        if bpy.app.background:
+            return None
+        pref = bpy.context.preferences.addons.get(__package__, None)
+        if pref and not pref.preferences.has_asked_browser_install:
+            try:
+                bpy.ops.wm.auto_install_browser_extension("INVOKE_DEFAULT")
+            except Exception:
+                pass
+        return None
+
+    bpy.app.timers.register(_prompt_auto_install, first_interval=1.2)
 
 
 def unregister():

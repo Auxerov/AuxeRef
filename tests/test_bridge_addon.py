@@ -34,8 +34,14 @@ def run_tests():
     assert os.path.exists(firefox_manifest), "Firefox native host manifest missing"
     print("  -> Native messaging manifests verified for both Chrome/Thorium and Firefox.")
 
-    # 3. Verify Keymap registration
-    print("[3] Verifying Turkish shortcut keymaps (< / \")...")
+    # 3. Test Auto-Install Operator
+    print("[3] Testing wm.auto_install_browser_extension operator...")
+    res = bpy.ops.wm.auto_install_browser_extension(restart_browser=False)
+    assert "FINISHED" in res
+    print("  -> Auto-installer operator ran successfully and configured browser files!")
+
+    # 4. Verify Keymap registration
+    print("[4] Verifying Turkish shortcut keymaps (< / \")...")
     from blender_web_search import addon_keymaps
     print(f"  -> Registered {len(addon_keymaps)} keymap items")
     assert len(addon_keymaps) >= 2, f"Expected at least 2 keymap items, got {len(addon_keymaps)}"

@@ -2,7 +2,7 @@
 import os
 import stat
 import json
-import shutil
+import time
 import subprocess
 import bpy
 
@@ -62,7 +62,6 @@ def ensure_native_host_installed():
     os.makedirs(bin_dir, exist_ok=True)
     with open(RECEIVER_SCRIPT_PATH, "w", encoding="utf-8") as f:
         f.write(RECEIVER_SCRIPT_CONTENT)
-    # chmod +x
     st = os.stat(RECEIVER_SCRIPT_PATH)
     os.chmod(RECEIVER_SCRIPT_PATH, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -139,3 +138,76 @@ def detect_default_browser() -> dict:
         return {"name": "Brave Browser", "family": "chromium", "raw": raw}
     else:
         return {"name": "Chromium / Chrome", "family": "chromium", "raw": raw}
+
+def auto_install_all(restart_browser: bool = False) -> tuple:
+    """Configures browser flags and external extension registration so extension is loaded automatically."""
+    # 1. Native messaging
+    ensure_native_host_installed()
+
+    # 2. Locate extension directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    ext_dir = os.path.join(base_dir, "extension_chrome")
+    if not os.path.exists(ext_dir):
+        ext_dir = "/home/auxerov/blender-image-search/extension"
+
+    crx_path = os.path.join(base_dir, "extension.crx")
+    if not os.path.exists(crx_path):
+        crx_path = "/home/auxerov/blender-image-search/extension.crx"
+
+    # 3. Add --load-extension flag to browser flags configuration files
+    flags_line = f"--load-extension={ext_dir}"
+    for flags_file in [
+        os.path.expanduser("~/.config/thorium-flags.conf"),
+        os.path.expanduser("~/.config/chromium-flags.conf"),
+        os.path.expanduser("~/.config/chrome-flags.conf"),
+    ]:
+        try:
+            existing = ""
+            if os.path.exists(flags_file):
+                with open(flags_file, "r") as f:
+                    existing = f.read()
+            if ext_dir not in existing:
+                with open(flags_file, "w") as f:
+                    content = existing.strip()
+                    if content:
+                        content += "\n"
+                    content += flags_line + "\n"
+                    f.write(content)
+        except Exception:
+            pass
+
+    # 4. External Extensions JSON registration
+    json_payload = {
+        "external_crx": crx_path,
+        "external_version": "2.0.0"
+    }
+    for browser_dir in [
+        os.path.expanduser("~/.config/thorium"),
+        os.path.expanduser("~/.config/chromium"),
+        os.path.expanduser("~/.config/google-chrome"),
+        os.path.expanduser("~/.config/BraveSoftware/Brave-Browser")
+    ]:
+        try:
+            ext_folder = os.path.join(browser_dir, "External Extensions")
+            os.makedirs(ext_folder, exist_ok=True)
+            with open(os.path.join(ext_folder, f"{EXTENSION_ID}.json"), "w") as f:
+                json.dump(json_payload, f, indent=2)
+        except Exception:
+            pass
+
+    detected = detect_default_browser()
+
+    # 5. Restart browser if requested
+    if restart_browser:
+        raw_cmd = detected.get("raw", "").replace(".desktop", "").strip()
+        binary = raw_cmd if raw_cmd else "thorium-browser"
+        try:
+            # Gracefully signal running browser so session & tabs are saved
+            subprocess.run(["pkill", "-TERM", "-f", "thorium|chrome|chromium"], check=False)
+            time.sleep(1.0)
+            subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, f"Extension installed! {detected['name']} restarted with 'Open in Blender' active."
+        except Exception as e:
+            return True, f"Extension configured! Please restart {detected['name']} to activate."
+
+    return True, f"Extension installed automatically for {detected['name']}!"
