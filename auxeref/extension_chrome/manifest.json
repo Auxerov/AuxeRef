@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "AuxeRef",
+  "version": "1.0.0",
+  "author": "Auxerov",
+  "description": "AuxeRef: Right-click any image on Pinterest, Google Images, or the web to Open in Blender or Add to Quicks in one click.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAztgAGeQtN4CdvpQU92/Oc9FlOYy9SFJvrciecu0upQyxjX/06Q3o5K35IWEmkmjf7HqnwRGE+RdmPPMxkGOvx82bUCYXkH/diLxOKq3KEhyjval+KWs00MG+FJx2ZEuQPgcJ4KAYkid5psbDs31j64wjExjRhGR/TlEmlh33nfAAeRhi4hH8VZ9F8PqX4aTytjZpu80r1pSdFg9qSctJb5yKXS+OwjEhUt8QWW4xWLw5Gz7fiTrs0X+sTkykJjOkNxUEQp1M0KLKo89jLOsQTjW8o7pFgL7Ha2WUx82FzJs7Ns++Q4i/3EpLJwOyFZolwIyq9/ju2ASO1mX7n9hZUwIDAQAB",
+  "permissions": [
+    "contextMenus",
+    "nativeMessaging",
+    "notifications",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "AuxeRef",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

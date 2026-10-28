@@ -30,7 +30,7 @@ def add_quick_reference(title: str, url: str, filepath: str) -> list:
     """Adds a new reference to the quick list and persists it."""
     items = load_quick_references()
     items = [it for it in items if it.get("url") != url and it.get("filepath") != filepath]
-    
+
     clean_title = (title.strip() if title else "Reference")[:32]
     items.insert(0, {
         "title": clean_title or "Reference",

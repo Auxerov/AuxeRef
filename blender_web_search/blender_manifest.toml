@@ -1,0 +1,26 @@
+schema_version = "1.0.0"
+
+id = "auxeref"
+name = "AuxeRef"
+version = "1.0.0"
+tagline = "Instant Image Search & Browser Bridge for References"
+maintainer = "Auxerov"
+type = "add-on"
+
+tags = ["3D View", "Import-Export"]
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+copyright = [
+  "2026 Auxerov",
+]
+
+[build]
+paths_exclude_pattern = [
+  "/.git/",
+  "__pycache__/",
+  "*.pyc",
+  ".*",
+]

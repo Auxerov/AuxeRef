@@ -7,7 +7,6 @@ import re
 import math
 import base64
 import hashlib
-import tempfile
 import urllib.request
 import urllib.parse
 import subprocess
@@ -18,7 +17,8 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Ge
 
 
 def get_cache_dir() -> str:
-    cache_dir = os.path.join(tempfile.gettempdir(), "auxeref_image_cache")
+    """Returns persistent directory where reference images are preserved across reboots."""
+    cache_dir = os.path.expanduser("~/.config/blender/auxeref_images")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
 
@@ -148,90 +148,52 @@ def download_or_decode_image(url_or_data: str, title: str = "", fallback_url: st
                 ext = ".png"
             elif "jpg" in raw_ext or "jpeg" in raw_ext:
                 ext = ".jpg"
-            elif "gif" in raw_ext:
-                ext = ".gif"
             elif "webp" in raw_ext:
                 ext = ".webp"
+            elif "gif" in raw_ext:
+                ext = ".gif"
             elif "avif" in raw_ext:
                 ext = ".avif"
-            elif "svg" in raw_ext:
-                ext = ".svg"
-            elif "bmp" in raw_ext:
-                ext = ".bmp"
-            elif "tiff" in raw_ext:
-                ext = ".tiff"
-            elif "heic" in raw_ext:
-                ext = ".heic"
             else:
-                ext = ".img"
-            img_data = base64.b64decode(match.group(2))
-            h = hashlib.sha1(img_data).hexdigest()[:12]
-            filepath = os.path.join(cache_dir, f"{name}_{h}{ext}")
-            with open(filepath, "wb") as f:
-                f.write(img_data)
-            return convert_if_needed(filepath)
+                ext = f".{raw_ext}"
+
+            b64_str = match.group(2)
+            try:
+                img_data = base64.b64decode(b64_str)
+                data_hash = hashlib.sha1(img_data).hexdigest()[:12]
+                filepath = os.path.join(cache_dir, f"{name}_{data_hash}{ext}")
+                with open(filepath, "wb") as f:
+                    f.write(img_data)
+                return convert_if_needed(filepath)
+            except Exception as e:
+                print(f"[AuxeRef] Base64 decode failed: {e}")
 
     target_main_url = url_or_data
-    if "imgurl=" in target_main_url:
-        try:
-            m = re.search(r"[?&]imgurl=([^&]+)", target_main_url)
-            if m:
-                target_main_url = urllib.parse.unquote(m.group(1))
-        except Exception:
-            pass
+    if "pinimg.com" in target_main_url:
+        target_main_url = re.sub(r'/(?:236x|474x|564x|736x)/', '/originals/', target_main_url)
 
-    def fetch_url(target_url: str):
-        target_url = target_url.strip()
-        parsed = urllib.parse.urlparse(target_url)
-
-        if "pinimg.com" in target_url or "pinterest.com" in target_url:
-            referer = "https://www.pinterest.com/"
-        elif "gstatic.com" in target_url or "google.com" in target_url:
-            referer = "https://www.google.com/"
-        else:
-            referer = f"{parsed.scheme}://{parsed.netloc}/"
-
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Referer": referer
-        }
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
-        req = urllib.request.Request(target_url, headers=headers)
-        with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
-            data = resp.read()
-            if not is_valid_image_bytes(data):
-                raise ValueError("Response was not a valid image.")
-            return data
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
     content = None
-    last_err = None
-    for attempt_url in [target_main_url, fallback_url, url_or_data]:
-        if not attempt_url:
-            continue
+    urls_to_try = [target_main_url]
+    if fallback_url and fallback_url != target_main_url:
+        urls_to_try.append(fallback_url)
+
+    for u in urls_to_try:
         try:
-            content = fetch_url(attempt_url)
-            break
+            req = urllib.request.Request(u, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=12, context=ctx) as resp:
+                data = resp.read()
+                if is_valid_image_bytes(data):
+                    content = data
+                    break
         except Exception as e:
-            last_err = e
-            try:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                req = urllib.request.Request(attempt_url, headers={"User-Agent": USER_AGENT})
-                with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-                    data = resp.read()
-                    if is_valid_image_bytes(data):
-                        content = data
-                        break
-            except Exception:
-                pass
+            print(f"[AuxeRef] Fetch attempt failed for {u[:60]}...: {e}")
 
     if not content:
-        raise ValueError(f"Failed to download image from {url_or_data}: {last_err}")
+        raise ValueError(f"Failed to fetch valid image bytes from {target_main_url}")
 
     ext = detect_image_extension(content, target_main_url)
     url_hash = hashlib.sha1(url_or_data.encode("utf-8")).hexdigest()[:12]
@@ -249,6 +211,10 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
     for img in bpy.data.images:
         if img.filepath and os.path.abspath(bpy.path.abspath(img.filepath)) == abs_path:
             if img.has_data and img.size[0] > 0:
+                try:
+                    img.pack()
+                except Exception:
+                    pass
                 return img
 
     bimg = bpy.data.images.load(filepath, check_existing=False)
@@ -267,6 +233,13 @@ def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
 
     if name:
         bimg.name = clean_name(name)
+
+    # Pack image into Blender file so it is saved and preserved
+    try:
+        bimg.pack()
+    except Exception:
+        pass
+
     return bimg
 
 

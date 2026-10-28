@@ -5,16 +5,18 @@ import os
 import stat
 import json
 import time
+import shutil
 import subprocess
 import bpy
 
 EXTENSION_ID = "pplmekajjhbhhlhgpiplnghmmfoehmoi"
+FIREFOX_EXT_ID = "auxeref@auxerov.local"
 NATIVE_HOST_NAME = "com.auxerov.blender"
 RECEIVER_SCRIPT_PATH = os.path.expanduser("~/.local/bin/blender_image_receiver.py")
 INBOX_DIR = "/tmp/blender_open_inbox"
 
 RECEIVER_SCRIPT_CONTENT = """#!/usr/bin/env python3
-\"\"\"AuxeRef Native Messaging Host connecting Chrome/Firefox to Blender without any network ports.\"\"\"
+\"\"\"AuxeRef Native Messaging Host connecting Chrome/Firefox/LibreWolf to Blender without network ports.\"\"\"
 import sys
 import json
 import struct
@@ -23,12 +25,23 @@ import time
 
 INBOX_DIR = "/tmp/blender_open_inbox"
 
+def read_exact(n):
+    data = bytearray()
+    while len(data) < n:
+        chunk = sys.stdin.buffer.read(n - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    return bytes(data)
+
 def read_message():
-    raw_length = sys.stdin.buffer.read(4)
-    if len(raw_length) == 0:
+    raw_length = read_exact(4)
+    if len(raw_length) < 4:
         return None
     message_length = struct.unpack('@I', raw_length)[0]
-    message_bytes = sys.stdin.buffer.read(message_length)
+    message_bytes = read_exact(message_length)
+    if len(message_bytes) < message_length:
+        return None
     return json.loads(message_bytes.decode('utf-8'))
 
 def send_message(message_content):
@@ -55,6 +68,51 @@ if __name__ == "__main__":
     main()
 """
 
+def get_bundle_dir() -> str:
+    """Returns the directory where extension files and packages reside."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return current_dir
+
+def find_xpi_file() -> str:
+    """Finds the Firefox/LibreWolf XPI package."""
+    base = get_bundle_dir()
+    candidates = [
+        os.path.join(base, f"{FIREFOX_EXT_ID}.xpi"),
+        os.path.join(base, "add_to_blender_firefox.xpi"),
+        os.path.join(base, "..", f"{FIREFOX_EXT_ID}.xpi"),
+        os.path.join(base, "..", "add_to_blender_firefox.xpi"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.path.getsize(c) > 100:
+            return os.path.abspath(c)
+    return ""
+
+def find_crx_file() -> str:
+    """Finds the Chrome/Chromium CRX package."""
+    base = get_bundle_dir()
+    candidates = [
+        os.path.join(base, "extension.crx"),
+        os.path.join(base, "..", "extension.crx"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.path.getsize(c) > 100:
+            return os.path.abspath(c)
+    return ""
+
+def find_chrome_ext_dir() -> str:
+    """Finds the unpacked Chrome extension directory."""
+    base = get_bundle_dir()
+    candidates = [
+        os.path.join(base, "extension_chrome"),
+        os.path.join(base, "extension"),
+        os.path.join(base, "..", "extension_chrome"),
+        os.path.join(base, "..", "extension"),
+    ]
+    for c in candidates:
+        if os.path.isdir(c) and os.path.isfile(os.path.join(c, "manifest.json")):
+            return os.path.abspath(c)
+    return ""
+
 def ensure_native_host_installed():
     """Installs receiver script and native messaging manifests across all browser profiles."""
     os.makedirs(INBOX_DIR, exist_ok=True)
@@ -66,6 +124,7 @@ def ensure_native_host_installed():
     st = os.stat(RECEIVER_SCRIPT_PATH)
     os.chmod(RECEIVER_SCRIPT_PATH, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
+    # 1. Manifest for Chromium-based browsers
     chrome_manifest = {
         "name": NATIVE_HOST_NAME,
         "description": "AuxeRef Image Bridge Native Host",
@@ -77,39 +136,140 @@ def ensure_native_host_installed():
     }
 
     chrome_dirs = [
-        os.path.expanduser("~/.config/thorium"),
-        os.path.expanduser("~/.config/chromium"),
         os.path.expanduser("~/.config/google-chrome"),
+        os.path.expanduser("~/.config/google-chrome-beta"),
+        os.path.expanduser("~/.config/chromium"),
+        os.path.expanduser("~/.config/thorium"),
         os.path.expanduser("~/.config/BraveSoftware/Brave-Browser"),
-        os.path.expanduser("~/.config/microsoft-edge")
+        os.path.expanduser("~/.config/microsoft-edge"),
+        os.path.expanduser("~/.config/vivaldi"),
+        os.path.expanduser("~/.config/opera"),
     ]
 
     for cdir in chrome_dirs:
-        nm_dir = os.path.join(cdir, "NativeMessagingHosts")
-        os.makedirs(nm_dir, exist_ok=True)
-        manifest_file = os.path.join(nm_dir, f"{NATIVE_HOST_NAME}.json")
-        with open(manifest_file, "w", encoding="utf-8") as f:
-            json.dump(chrome_manifest, f, indent=2)
+        try:
+            nm_dir = os.path.join(cdir, "NativeMessagingHosts")
+            os.makedirs(nm_dir, exist_ok=True)
+            manifest_file = os.path.join(nm_dir, f"{NATIVE_HOST_NAME}.json")
+            with open(manifest_file, "w", encoding="utf-8") as f:
+                json.dump(chrome_manifest, f, indent=2)
+        except Exception:
+            pass
 
+    # 2. Manifest for Firefox / LibreWolf based browsers
     firefox_manifest = {
         "name": NATIVE_HOST_NAME,
         "description": "AuxeRef Image Bridge Native Host",
         "path": RECEIVER_SCRIPT_PATH,
         "type": "stdio",
         "allowed_extensions": [
-            "auxeref@auxerov.local",
+            FIREFOX_EXT_ID,
             "add-to-blender@auxerov.local"
         ]
     }
-    ff_nm_dir = os.path.expanduser("~/.mozilla/native-messaging-hosts")
-    os.makedirs(ff_nm_dir, exist_ok=True)
-    with open(os.path.join(ff_nm_dir, f"{NATIVE_HOST_NAME}.json"), "w", encoding="utf-8") as f:
-        json.dump(firefox_manifest, f, indent=2)
+
+    ff_dirs = [
+        os.path.expanduser("~/.librewolf/native-messaging-hosts"),
+        os.path.expanduser("~/.config/librewolf/native-messaging-hosts"),
+        os.path.expanduser("~/.mozilla/native-messaging-hosts"),
+        os.path.expanduser("~/.waterfox/native-messaging-hosts"),
+        os.path.expanduser("~/.floorp/native-messaging-hosts"),
+    ]
+
+    for fdir in ff_dirs:
+        try:
+            os.makedirs(fdir, exist_ok=True)
+            with open(os.path.join(fdir, f"{NATIVE_HOST_NAME}.json"), "w", encoding="utf-8") as f:
+                json.dump(firefox_manifest, f, indent=2)
+        except Exception:
+            pass
+
+    return True
+
+def install_firefox_extension() -> int:
+    """Installs the .xpi extension directly into LibreWolf and Firefox profiles."""
+    xpi_src = find_xpi_file()
+    if not xpi_src or not os.path.exists(xpi_src):
+        return 0
+
+    roots = [
+        os.path.expanduser("~/.config/librewolf/librewolf"),
+        os.path.expanduser("~/.librewolf"),
+        os.path.expanduser("~/.mozilla/firefox"),
+        os.path.expanduser("~/.waterfox"),
+        os.path.expanduser("~/.floorp"),
+    ]
+
+    installed_count = 0
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        try:
+            for entry in os.scandir(root):
+                if entry.is_dir():
+                    # Check if directory looks like a browser profile
+                    profile_indicators = ["extensions", "prefs.js", "user.js", "times.json", "compatibility.ini"]
+                    is_profile = any(os.path.exists(os.path.join(entry.path, ind)) for ind in profile_indicators)
+                    if is_profile or "default" in entry.name:
+                        ext_dir = os.path.join(entry.path, "extensions")
+                        os.makedirs(ext_dir, exist_ok=True)
+                        dest_file = os.path.join(ext_dir, f"{FIREFOX_EXT_ID}.xpi")
+                        shutil.copy2(xpi_src, dest_file)
+                        installed_count += 1
+        except Exception as e:
+            print(f"[AuxeRef] Firefox profile scan error: {e}")
+
+    return installed_count
+
+def install_chromium_extension() -> bool:
+    """Configures browser flags and external extensions for Chromium-based browsers."""
+    ext_dir = find_chrome_ext_dir()
+    crx_path = find_crx_file()
+
+    if ext_dir:
+        flags_line = f"--load-extension={ext_dir}"
+        for flags_file in [
+            os.path.expanduser("~/.config/thorium-flags.conf"),
+            os.path.expanduser("~/.config/chromium-flags.conf"),
+            os.path.expanduser("~/.config/chrome-flags.conf"),
+        ]:
+            try:
+                lines = []
+                if os.path.exists(flags_file):
+                    with open(flags_file, "r") as f:
+                        for line in f.read().splitlines():
+                            if not line.startswith("--load-extension"):
+                                lines.append(line)
+                lines.append(flags_line)
+                with open(flags_file, "w") as f:
+                    f.write("\n".join(lines).strip() + "\n")
+            except Exception:
+                pass
+
+    if crx_path:
+        json_payload = {
+            "external_crx": crx_path,
+            "external_version": "1.0.0"
+        }
+        for browser_dir in [
+            os.path.expanduser("~/.config/thorium"),
+            os.path.expanduser("~/.config/chromium"),
+            os.path.expanduser("~/.config/google-chrome"),
+            os.path.expanduser("~/.config/BraveSoftware/Brave-Browser"),
+            os.path.expanduser("~/.config/microsoft-edge"),
+        ]:
+            try:
+                ext_folder = os.path.join(browser_dir, "External Extensions")
+                os.makedirs(ext_folder, exist_ok=True)
+                with open(os.path.join(ext_folder, f"{EXTENSION_ID}.json"), "w") as f:
+                    json.dump(json_payload, f, indent=2)
+            except Exception:
+                pass
 
     return True
 
 def detect_default_browser() -> dict:
-    """Detects default browser name and family."""
+    """Detects default browser name, family, and binary executable."""
     raw = ""
     try:
         raw = subprocess.check_output(["xdg-settings", "get", "default-web-browser"], stderr=subprocess.DEVNULL).decode().strip()
@@ -126,80 +286,52 @@ def detect_default_browser() -> dict:
         raw = os.environ.get("BROWSER", "")
 
     raw_lower = raw.lower()
-    if any(k in raw_lower for k in ["firefox", "librewolf", "waterfox", "tor"]):
-        return {"name": "Mozilla Firefox", "family": "firefox", "raw": raw}
+    if "librewolf" in raw_lower:
+        return {"name": "LibreWolf", "family": "firefox", "raw": raw, "binary": "librewolf"}
+    elif "floorp" in raw_lower:
+        return {"name": "Floorp", "family": "firefox", "raw": raw, "binary": "floorp"}
+    elif "waterfox" in raw_lower:
+        return {"name": "Waterfox", "family": "firefox", "raw": raw, "binary": "waterfox"}
+    elif "firefox" in raw_lower or "tor" in raw_lower:
+        return {"name": "Mozilla Firefox", "family": "firefox", "raw": raw, "binary": "firefox"}
     elif "thorium" in raw_lower:
-        return {"name": "Thorium Browser", "family": "chromium", "raw": raw}
+        return {"name": "Thorium Browser", "family": "chromium", "raw": raw, "binary": "thorium-browser"}
     elif "chrome" in raw_lower:
-        return {"name": "Google Chrome", "family": "chromium", "raw": raw}
+        return {"name": "Google Chrome", "family": "chromium", "raw": raw, "binary": "google-chrome"}
     elif "chromium" in raw_lower:
-        return {"name": "Chromium", "family": "chromium", "raw": raw}
+        return {"name": "Chromium", "family": "chromium", "raw": raw, "binary": "chromium"}
     elif "brave" in raw_lower:
-        return {"name": "Brave Browser", "family": "chromium", "raw": raw}
+        return {"name": "Brave Browser", "family": "chromium", "raw": raw, "binary": "brave-browser"}
     else:
-        return {"name": "Chromium / Chrome", "family": "chromium", "raw": raw}
+        return {"name": "Web Browser", "family": "unknown", "raw": raw, "binary": "xdg-open"}
 
 def auto_install_all(restart_browser: bool = False) -> tuple:
-    """Configures browser flags and external extension registration so extension is loaded automatically."""
+    """Configures browser flags, profiles, and native host across all browsers."""
     ensure_native_host_installed()
-
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    ext_dir = os.path.join(base_dir, "extension_chrome")
-    if not os.path.exists(ext_dir):
-        ext_dir = "/home/auxerov/blender-image-search/extension"
-
-    crx_path = os.path.join(base_dir, "extension.crx")
-    if not os.path.exists(crx_path):
-        crx_path = "/home/auxerov/blender-image-search/extension.crx"
-
-    flags_line = f"--load-extension={ext_dir}"
-    for flags_file in [
-        os.path.expanduser("~/.config/thorium-flags.conf"),
-        os.path.expanduser("~/.config/chromium-flags.conf"),
-        os.path.expanduser("~/.config/chrome-flags.conf"),
-    ]:
-        try:
-            lines = []
-            if os.path.exists(flags_file):
-                with open(flags_file, "r") as f:
-                    for line in f.read().splitlines():
-                        if not line.startswith("--load-extension"):
-                            lines.append(line)
-            lines.append(flags_line)
-            with open(flags_file, "w") as f:
-                f.write("\n".join(lines).strip() + "\n")
-        except Exception:
-            pass
-
-    json_payload = {
-        "external_crx": crx_path,
-        "external_version": "1.0.0"
-    }
-    for browser_dir in [
-        os.path.expanduser("~/.config/thorium"),
-        os.path.expanduser("~/.config/chromium"),
-        os.path.expanduser("~/.config/google-chrome"),
-        os.path.expanduser("~/.config/BraveSoftware/Brave-Browser")
-    ]:
-        try:
-            ext_folder = os.path.join(browser_dir, "External Extensions")
-            os.makedirs(ext_folder, exist_ok=True)
-            with open(os.path.join(ext_folder, f"{EXTENSION_ID}.json"), "w") as f:
-                json.dump(json_payload, f, indent=2)
-        except Exception:
-            pass
+    ff_installed = install_firefox_extension()
+    install_chromium_extension()
 
     detected = detect_default_browser()
 
     if restart_browser:
-        raw_cmd = detected.get("raw", "").replace(".desktop", "").strip()
-        binary = raw_cmd if raw_cmd else "thorium-browser"
+        binary = detected.get("binary", "xdg-open")
         try:
-            subprocess.run(["pkill", "-TERM", "-f", "thorium|chrome|chromium"], check=False)
-            time.sleep(1.0)
+            kill_targets = "librewolf|firefox|thorium|chrome|chromium|brave"
+            subprocess.run(["pkill", "-TERM", "-f", kill_targets], check=False)
+            time.sleep(0.8)
             subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True, f"AuxeRef installed! {detected['name']} restarted."
         except Exception:
-            return True, f"AuxeRef configured! Please restart {detected['name']}."
+            pass
 
-    return True, f"AuxeRef installed automatically for {detected['name']}!"
+    # For Firefox/LibreWolf, also offer opening the XPI file to trigger the one-click Add dialog
+    xpi_path = find_xpi_file()
+    if detected["family"] == "firefox" and xpi_path and os.path.exists(xpi_path):
+        try:
+            binary = detected.get("binary", "xdg-open")
+            subprocess.Popen([binary, xpi_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, f"AuxeRef extension sent to {detected['name']}! Click 'Add' in the browser prompt to confirm."
+        except Exception:
+            pass
+
+    return True, f"AuxeRef configured successfully for {detected['name']}!"

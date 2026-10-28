@@ -1,7 +1,9 @@
 const NATIVE_HOST = "com.auxerov.blender";
 let lastTargetsByTab = {};
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+const browserApi = (typeof browser !== "undefined" && browser.runtime) ? browser : chrome;
+
+browserApi.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "BLENDER_IMAGE_TARGET" && sender.tab) {
     lastTargetsByTab[sender.tab.id] = {
       url: msg.url,
@@ -27,7 +29,7 @@ let initRunning = false;
 
 function createMenuAsync(item) {
   return new Promise((resolve) => {
-    chrome.contextMenus.create(item, () => {
+    browserApi.contextMenus.create(item, () => {
       resolve();
     });
   });
@@ -38,7 +40,7 @@ async function setupMenus() {
   initRunning = true;
   try {
     await new Promise((resolve) => {
-      chrome.contextMenus.removeAll(() => {
+      browserApi.contextMenus.removeAll(() => {
         resolve();
       });
     });
@@ -53,8 +55,8 @@ async function setupMenus() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => { setupMenus(); });
-chrome.runtime.onStartup.addListener(() => { setupMenus(); });
+browserApi.runtime.onInstalled.addListener(() => { setupMenus(); });
+browserApi.runtime.onStartup.addListener(() => { setupMenus(); });
 setupMenus();
 
 function resolveTarget(info, tab) {
@@ -131,7 +133,7 @@ async function fetchImageAsDataUrl(url) {
   return null;
 }
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+browserApi.contextMenus.onClicked.addListener(async (info, tab) => {
   const isActionOpen = (info.menuItemId === "auxeref_open");
   const isActionQuick = (info.menuItemId === "auxeref_quick");
 
@@ -153,7 +155,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!fetched && fallbackUrl && fallbackUrl !== targetUrl) {
     fetched = await fetchImageAsDataUrl(fallbackUrl);
   }
-  if (fetched) {
+  // Native Messaging max length is 1024*1024 bytes.
+  // Only use base64 dataUrl if under 800KB. For larger images, Blender downloads directly.
+  if (fetched && fetched.length < 800000) {
     finalUrl = fetched;
   }
 
@@ -166,19 +170,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     pageUrl: (tab && tab.url) ? tab.url : ""
   };
 
-  chrome.runtime.sendNativeMessage(NATIVE_HOST, payload, (response) => {
-    if (chrome.runtime.lastError) {
-      console.warn("Native messaging:", chrome.runtime.lastError.message);
-      notify("AuxeRef", isActionQuick ? "Saved to Quicks!" : "Sent to Blender!");
-    } else {
-      notify("AuxeRef", isActionQuick ? "Added to Quicks!" : "Opened in Blender!");
+  browserApi.runtime.sendNativeMessage(NATIVE_HOST, payload, (response) => {
+    const err = browserApi.runtime.lastError;
+    if (err) {
+      console.warn("Native messaging error:", err.message);
     }
+    notify("AuxeRef", isActionQuick ? "Added to Quicks!" : "Sent to Blender!");
   });
 });
 
 function notify(title, message) {
-  if (chrome.notifications && chrome.notifications.create) {
-    chrome.notifications.create({
+  if (browserApi.notifications && browserApi.notifications.create) {
+    browserApi.notifications.create({
       type: "basic",
       iconUrl: "icons/icon48.png",
       title: title,
