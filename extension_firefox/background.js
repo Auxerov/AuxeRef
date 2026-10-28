@@ -1,5 +1,5 @@
 /**
- * Open in Blender - Background Service Worker
+ * AuxeRef - Background Service Worker
  * Communicates with Blender via native messaging without any web servers or ports.
  */
 
@@ -13,19 +13,38 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
-// Single clean menu choice: "Open in Blender"
-chrome.runtime.onInstalled.addListener(() => {
+function setupMenus() {
   chrome.contextMenus.removeAll(() => {
+    // Parent Context Menu: "AuxeRef"
     chrome.contextMenus.create({
-      id: "open_in_blender",
+      id: "auxeref_root",
+      title: "AuxeRef",
+      contexts: ["image", "link", "page"]
+    });
+
+    // Submenu Item 1: "Open in Blender"
+    chrome.contextMenus.create({
+      parentId: "auxeref_root",
+      id: "auxeref_open",
       title: "Open in Blender",
       contexts: ["image", "link", "page"]
     });
+
+    // Submenu Item 2: "Add to Quick"
+    chrome.contextMenus.create({
+      parentId: "auxeref_root",
+      id: "auxeref_quick",
+      title: "Add to Quick",
+      contexts: ["image", "link", "page"]
+    });
   });
-});
+}
+
+chrome.runtime.onInstalled.addListener(setupMenus);
+chrome.runtime.onStartup.addListener(setupMenus);
 
 function resolveTargetUrl(info, tab) {
-  // 1. Content script found target (especially for Pinterest overlay divs)
+  // 1. Content script target
   if (tab && lastFoundImageByTab[tab.id]) {
     const url = lastFoundImageByTab[tab.id];
     delete lastFoundImageByTab[tab.id];
@@ -59,31 +78,37 @@ function resolveTargetUrl(info, tab) {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "open_in_blender") {
-    const targetUrl = resolveTargetUrl(info, tab);
-    if (!targetUrl) {
-      notify("Open in Blender", "No image found under cursor.");
-      return;
-    }
+  const isActionOpen = (info.menuItemId === "auxeref_open");
+  const isActionQuick = (info.menuItemId === "auxeref_quick");
 
-    const pageTitle = (tab && tab.title) ? tab.title.split("-")[0].trim() : "WebImage";
-
-    const payload = {
-      url: targetUrl,
-      title: pageTitle,
-      pageUrl: (tab && tab.url) ? tab.url : ""
-    };
-
-    // Send directly via Native Messaging
-    chrome.runtime.sendNativeMessage(NATIVE_HOST, payload, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn("Native messaging:", chrome.runtime.lastError.message);
-        notify("Open in Blender", "Sent to Blender inbox!");
-      } else {
-        notify("Open in Blender", "Image opened in Blender!");
-      }
-    });
+  if (!isActionOpen && !isActionQuick) {
+    return;
   }
+
+  const targetUrl = resolveTargetUrl(info, tab);
+  if (!targetUrl) {
+    notify("AuxeRef", "No image found under cursor.");
+    return;
+  }
+
+  const pageTitle = (tab && tab.title) ? tab.title.split("-")[0].trim() : "WebImage";
+  const actionType = isActionQuick ? "QUICK_ADD" : "OPEN";
+
+  const payload = {
+    action: actionType,
+    url: targetUrl,
+    title: pageTitle,
+    pageUrl: (tab && tab.url) ? tab.url : ""
+  };
+
+  chrome.runtime.sendNativeMessage(NATIVE_HOST, payload, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn("Native messaging:", chrome.runtime.lastError.message);
+      notify("AuxeRef", isActionQuick ? "Saved to Quick References!" : "Sent to Blender!");
+    } else {
+      notify("AuxeRef", isActionQuick ? "Added to Quick References!" : "Opened in Blender!");
+    }
+  });
 });
 
 function notify(title, message) {

@@ -1,4 +1,4 @@
-"""Image downloading, caching, and Blender data-block creation."""
+"""Image downloading, caching, AVIF/WebP conversion, and Blender data-block creation."""
 import os
 import re
 import base64
@@ -6,13 +6,14 @@ import hashlib
 import tempfile
 import urllib.request
 import urllib.parse
+import subprocess
 import ssl
 import bpy
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 def get_cache_dir() -> str:
-    cache_dir = os.path.join(tempfile.gettempdir(), "blender_web_search_cache")
+    cache_dir = os.path.join(tempfile.gettempdir(), "auxeref_image_cache")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
 
@@ -22,9 +23,29 @@ def clean_name(title: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     return cleaned[:48] if len(cleaned) > 48 else (cleaned or "WebImage")
 
+def convert_to_png(input_path: str) -> str:
+    """Converts any unsupported image format (AVIF, HEIC, etc.) to standard PNG via ffmpeg."""
+    png_path = os.path.splitext(input_path)[0] + "_converted.png"
+    if os.path.exists(png_path) and os.path.getsize(png_path) > 100:
+        return png_path
+
+    try:
+        res = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-frames:v", "1", png_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        if res.returncode == 0 and os.path.exists(png_path) and os.path.getsize(png_path) > 100:
+            return png_path
+    except Exception as e:
+        print(f"[AuxeRef] Conversion error: {e}")
+
+    return input_path
+
 def download_or_decode_image(url_or_data: str, title: str = "") -> str:
-    """Saves image to disk from either a data URI or HTTP/HTTPS URL."""
+    """Saves image to disk from either a data URI or HTTP/HTTPS URL, auto-converting AVIF to PNG."""
     cache_dir = get_cache_dir()
+    name = clean_name(title)
     
     # 1. Base64 data URI
     if url_or_data.startswith("data:image/"):
@@ -36,27 +57,28 @@ def download_or_decode_image(url_or_data: str, title: str = "") -> str:
             raw_b64 = match.group(2)
             img_data = base64.b64decode(raw_b64)
             h = hashlib.sha1(img_data).hexdigest()[:12]
-            name = clean_name(title)
             filepath = os.path.join(cache_dir, f"{name}_{h}.{ext}")
             with open(filepath, "wb") as f:
                 f.write(img_data)
+            
+            # Check if AVIF
+            if b"ftypavif" in img_data[:32] or b"ftypmif1" in img_data[:32]:
+                filepath = convert_to_png(filepath)
             return filepath
 
     # 2. HTTP / HTTPS URL
     url = url_or_data.strip()
     url_hash = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
     
-    # Try guessing extension from URL
     path_only = urllib.parse.urlparse(url).path
     ext = os.path.splitext(path_only)[1].lower()
-    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tga"]:
-        ext = ".png"
+    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tga", ".avif"]:
+        ext = ".jpg"
 
-    name = clean_name(title)
     filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
 
     if os.path.exists(filepath) and os.path.getsize(filepath) > 500:
-        return filepath
+        return convert_if_needed(filepath)
 
     # Determine appropriate Referer and User-Agent
     referer = "https://www.google.com/"
@@ -91,31 +113,63 @@ def download_or_decode_image(url_or_data: str, title: str = "") -> str:
             raise e
 
     if not content or len(content) < 100:
-        raise ValueError(f"Downloaded content too small, invalid image.")
-        
-    # Detect true image type from magic bytes if possible
+        raise ValueError("Downloaded content too small, invalid image.")
+
+    # Detect true format
+    is_avif = False
     if content.startswith(b'\x89PNG'):
         ext = '.png'
     elif content.startswith(b'\xff\xd8\xff'):
         ext = '.jpg'
     elif content.startswith(b'RIFF') and b'WEBP' in content[:16]:
         ext = '.webp'
-        
+    elif b'ftypavif' in content[:32] or b'ftypmif1' in content[:32] or b'ftypisom' in content[:32]:
+        ext = '.avif'
+        is_avif = True
+
     filepath = os.path.join(cache_dir, f"{name}_{url_hash}{ext}")
     with open(filepath, "wb") as f:
         f.write(content)
 
+    if is_avif:
+        filepath = convert_to_png(filepath)
+
+    return filepath
+
+def convert_if_needed(filepath: str) -> str:
+    """Checks if file is AVIF and converts to PNG if so."""
+    try:
+        with open(filepath, "rb") as f:
+            header = f.read(32)
+        if b"ftypavif" in header or b"ftypmif1" in header or b"ftypisom" in header or b"avif" in header:
+            return convert_to_png(filepath)
+    except Exception:
+        pass
     return filepath
 
 def get_or_load_image(filepath: str, name: str = "") -> bpy.types.Image:
+    """Loads image into Blender, ensuring non-pink valid texture data."""
+    filepath = convert_if_needed(filepath)
     abs_path = os.path.abspath(filepath)
+    
+    # Check already loaded
     for img in bpy.data.images:
         if img.filepath and os.path.abspath(bpy.path.abspath(img.filepath)) == abs_path:
-            return img
-    img = bpy.data.images.load(filepath, check_existing=True)
+            if img.has_data and img.size[0] > 0:
+                return img
+
+    bimg = bpy.data.images.load(filepath, check_existing=False)
+    
+    # If Blender failed to decode (e.g. AVIF or unrecognized), auto-convert to PNG and reload!
+    if bimg.size[0] == 0 or not bimg.has_data:
+        print(f"[AuxeRef] Blender could not decode {filepath}. Converting to PNG...")
+        bpy.data.images.remove(bimg)
+        png_path = convert_to_png(filepath)
+        bimg = bpy.data.images.load(png_path, check_existing=True)
+
     if name:
-        img.name = clean_name(name)
-    return img
+        bimg.name = clean_name(name)
+    return bimg
 
 def create_reference_empty(bimg: bpy.types.Image, name: str, context):
     """Creates an Empty image at the 3D Cursor."""
@@ -193,7 +247,6 @@ def apply_to_active_material(bimg: bpy.types.Image, name: str, context):
     """Applies image texture to active object's material."""
     obj = context.active_object
     if not obj or obj.type != "MESH":
-        # Fallback to creating image plane if no mesh object active
         return create_image_plane(bimg, name, context)
 
     mat = obj.active_material

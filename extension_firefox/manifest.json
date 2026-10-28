@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Open in Blender",
-  "version": "2.0.0",
-  "description": "Right click any image on Google Images, Pinterest, or the web and open directly in Blender in one click.",
+  "name": "AuxeRef",
+  "version": "2.2.0",
+  "description": "AuxeRef: Right click any image on Pinterest, Google Images, or the web to Open in Blender or Add to Quick in one click.",
   "permissions": [
     "contextMenus",
     "nativeMessaging",
@@ -22,9 +22,13 @@
       "run_at": "document_start"
     }
   ],
+  "action": {
+    "default_title": "AuxeRef",
+    "default_popup": "popup.html"
+  },
   "browser_specific_settings": {
     "gecko": {
-      "id": "add-to-blender@auxerov.local"
+      "id": "auxeref@auxerov.local"
     }
   },
   "icons": {

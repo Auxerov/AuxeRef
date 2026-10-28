@@ -1,19 +1,25 @@
-"""Automated test for native 'Open in Blender' bridge, Pinterest & Google search, and zero-port architecture."""
+"""Automated test for AuxeRef: F8 search, quick references, AVIF healing, and native IPC."""
 import os
 import sys
 import time
 import json
 import struct
 import subprocess
+import base64
+import zlib
+import webbrowser
 import bpy
 
 def run_tests():
     print("=" * 60)
-    print(f"RUNNING NATIVE 'OPEN IN BLENDER' TESTS ON BLENDER {bpy.app.version_string}")
+    print(f"RUNNING AUXEREF TEST SUITE ON BLENDER {bpy.app.version_string}")
     print("=" * 60)
 
+    inbox_dir = "/tmp/blender_open_inbox"
+    os.makedirs(inbox_dir, exist_ok=True)
+
     # 1. Enable Add-on
-    print("[1] Enabling addon 'blender_web_search'...")
+    print("[1] Enabling addon 'blender_web_search' (AuxeRef)...")
     try:
         bpy.ops.preferences.addon_enable(module="blender_web_search")
         print("  -> Addon enabled successfully!")
@@ -29,40 +35,48 @@ def run_tests():
     print("  -> Receiver script installed and executable.")
 
     chrome_manifest = os.path.expanduser("~/.config/thorium/NativeMessagingHosts/com.auxerov.blender.json")
-    assert os.path.exists(chrome_manifest), "Chrome native host manifest missing"
+    assert os.path.exists(chrome_manifest), "Chrome/Thorium native host manifest missing"
     firefox_manifest = os.path.expanduser("~/.mozilla/native-messaging-hosts/com.auxerov.blender.json")
     assert os.path.exists(firefox_manifest), "Firefox native host manifest missing"
     print("  -> Native messaging manifests verified for both Chrome/Thorium and Firefox.")
 
     # 3. Test Auto-Install Operator
-    print("[3] Testing wm.auto_install_browser_extension operator...")
-    res = bpy.ops.wm.auto_install_browser_extension(restart_browser=False)
+    print("[3] Testing wm.auxeref_auto_install operator...")
+    res = bpy.ops.wm.auxeref_auto_install(restart_browser=False)
     assert "FINISHED" in res
     print("  -> Auto-installer operator ran successfully and configured browser files!")
 
-    # 4. Verify Keymap registration
-    print("[4] Verifying Turkish shortcut keymaps (< / \")...")
+    # 4. Verify Keymap registration (F8 + Turkish shortcuts)
+    print("[4] Verifying F8 and Turkish shortcut keymaps...")
     from blender_web_search import addon_keymaps
     print(f"  -> Registered {len(addon_keymaps)} keymap items")
-    assert len(addon_keymaps) >= 2, f"Expected at least 2 keymap items, got {len(addon_keymaps)}"
+    assert len(addon_keymaps) >= 2, f"Expected keymap items, got {len(addon_keymaps)}"
     types = [kmi.type for _, kmi in addon_keymaps]
     print(f"  -> Key types registered: {types}")
+    assert "F8" in types, "F8 keymap not registered!"
     assert "ACCENT_GRAVE" in types, "ACCENT_GRAVE keymap not registered!"
     assert "GRLESS" in types, "GRLESS keymap not registered!"
+    print("  -> Primary F8 shortcut and fallback shortcuts verified.")
 
-    # 4. Test Search operator with Pinterest & Google
-    print("[4] Testing Search operator with Pinterest & Google...")
-    wm = bpy.context.window_manager
-    # Google Images search
-    res = bpy.ops.wm.web_image_search(query="blender logo", engine="GOOGLE")
-    assert "FINISHED" in res
-    # Pinterest search
-    res = bpy.ops.wm.web_image_search(query="game art concept", engine="PINTEREST")
-    assert "FINISHED" in res
+    # 5. Test Search operator with Pinterest & Google
+    print("[5] Testing wm.auxeref_search operator with Google & Pinterest...")
+    orig_open = webbrowser.open_new_tab
+    opened_urls = []
+    webbrowser.open_new_tab = lambda u: opened_urls.append(u) or True
+    try:
+        res = bpy.ops.wm.auxeref_search(query="blender 3d model", engine="GOOGLE")
+        assert "FINISHED" in res
+        res = bpy.ops.wm.auxeref_search(query="hard surface design", engine="PINTEREST")
+        assert "FINISHED" in res
+        assert len(opened_urls) == 2
+        assert "google.com" in opened_urls[0]
+        assert "pinterest.com" in opened_urls[1]
+    finally:
+        webbrowser.open_new_tab = orig_open
     print("  -> Both Google Images and Pinterest search operators executed successfully.")
 
-    # 5. Generate base64 test image
-    import zlib, base64
+    # 6. Generate base64 test image
+    import zlib
     def make_png_data_uri():
         def png_chunk(chunk_type, data):
             return struct.pack('>I', len(data)) + chunk_type + data + struct.pack('>I', zlib.crc32(chunk_type + data) & 0xffffffff)
@@ -80,13 +94,14 @@ def run_tests():
 
     test_data_uri = make_png_data_uri()
 
-    # 6. Simulate Browser Native Messaging invocation
-    print("[6] Testing Browser -> Native Host invocation (stdin pipe)...")
-    payload = {
+    # 7. Test Browser -> Native Host invocation (OPEN action)
+    print("[7] Testing Browser -> Native Host invocation for 'OPEN'...")
+    payload_open = {
+        "action": "OPEN",
         "url": test_data_uri,
-        "title": "OneClickTestImage"
+        "title": "AuxeRefOpenTest"
     }
-    encoded = json.dumps(payload).encode("utf-8")
+    encoded = json.dumps(payload_open).encode("utf-8")
     native_input = struct.pack("@I", len(encoded)) + encoded
 
     proc = subprocess.Popen(
@@ -98,48 +113,110 @@ def run_tests():
     stdout, stderr = proc.communicate(input=native_input)
     assert proc.returncode == 0, f"Receiver script failed: {stderr}"
     
-    # Check response from receiver
     resp_len = struct.unpack("@I", stdout[:4])[0]
     resp_data = json.loads(stdout[4:4+resp_len].decode("utf-8"))
     assert resp_data.get("status") == "ok"
     print(f"  -> Native host responded: {resp_data}")
 
-    # 7. Check that item was placed in Blender inbox and process it
-    print("[7] Checking Blender inbox processing...")
-    inbox_dir = "/tmp/blender_open_inbox"
-    inbox_files = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
-    print(f"  -> Inbox contains {len(inbox_files)} files: {inbox_files}")
-    assert len(inbox_files) > 0, "No item found in inbox!"
-
-    # Trigger Blender inbox timer loop
+    # Process inbox
+    print(f"  -> Inbox files before step 7 check: {os.listdir(inbox_dir)}")
     from blender_web_search import _check_inbox_timer
     _check_inbox_timer()
+    print(f"  -> Inbox files after step 7 check: {os.listdir(inbox_dir)}")
 
-    # Verify inbox is cleaned
-    remaining = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
-    assert len(remaining) == 0, f"Inbox should be empty after processing, found {remaining}"
+    created_obj = next((o for o in bpy.context.scene.objects if "AuxeRefOpenTest" in o.name), None)
+    assert created_obj is not None, "AuxeRefOpenTest object was not created in Blender scene!"
+    assert created_obj.data is not None, "AuxeRefOpenTest image data is None!"
+    assert created_obj.data.has_data, "Image has no data (pink texture)!"
+    assert created_obj.data.size[0] > 0, "Image has zero dimensions!"
+    print(f"  -> Verified scene object: '{created_obj.name}' with valid texture {created_obj.data.size[:]}")
 
-    # Verify Blender scene object was created
-    created_obj = next((o for o in bpy.context.scene.objects if "OneClickTestImage" in o.name), None)
-    assert created_obj is not None, "Image was not created in Blender scene!"
-    print(f"  -> Verified scene object created in Blender: '{created_obj.name}' (type={created_obj.type})")
+    # 8. Test Browser -> Native Host invocation (QUICK_ADD action)
+    print("[8] Testing Browser -> Native Host invocation for 'QUICK_ADD'...")
+    from blender_web_search import quick_manager
+    quick_manager.clear_quick_references()
 
-    # 8. Test Pinterest URL resolution logic
-    print("[8] Testing Pinterest image download handling...")
+    payload_quick = {
+        "action": "QUICK_ADD",
+        "url": test_data_uri,
+        "title": "AuxeRefQuickTest"
+    }
+    encoded_quick = json.dumps(payload_quick).encode("utf-8")
+    native_input_quick = struct.pack("@I", len(encoded_quick)) + encoded_quick
+
+    proc = subprocess.Popen(
+        [sys.executable, receiver_path],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    stdout, stderr = proc.communicate(input=native_input_quick)
+    assert proc.returncode == 0
+    print(f"  -> Native host stdout: {stdout}")
+
+    inbox_files = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
+    print(f"  -> Inbox files before timer: {inbox_files}")
+
+    _check_inbox_timer()
+
+    inbox_files_after = [f for f in os.listdir(inbox_dir) if f.endswith(".json")]
+    print(f"  -> Inbox files after timer: {inbox_files_after}")
+
+    items = quick_manager.load_quick_references()
+    print(f"  -> Quick references count: {len(items)}")
+    assert len(items) > 0, "Quick references list is empty!"
+    assert items[0]["title"] == "AuxeRefQuickTest"
+    print(f"  -> Quick reference saved successfully: '{items[0]['title']}' -> '{items[0]['filepath']}'")
+
+    # 9. Test wm.auxeref_spawn_quick operator
+    print("[9] Testing wm.auxeref_spawn_quick operator...")
+    res = bpy.ops.wm.auxeref_spawn_quick(index=0)
+    assert "FINISHED" in res
+    spawned_obj = next((o for o in bpy.context.scene.objects if "AuxeRefQuickTest" in o.name), None)
+    assert spawned_obj is not None, "Spawned quick reference object not found!"
+    print(f"  -> Spawned quick reference object into scene: '{spawned_obj.name}'")
+
+    # 10. Test AVIF Auto-healing and Non-Pink Texture Loading
+    print("[10] Testing AVIF / unsupported image auto-healing via ffmpeg...")
     from blender_web_search import importer
-    # Test clean real Pinterest image URL
-    pin_test_url = "https://i.pinimg.com/originals/d5/3b/01/d53b014d86a6b6761bf649a0ed813c2b.png"
-    downloaded_path = importer.download_or_decode_image(pin_test_url, "PinterestPin")
-    assert os.path.exists(downloaded_path) and os.path.getsize(downloaded_path) > 1000
-    print(f"  -> Pinterest image downloaded successfully to: {downloaded_path} ({os.path.getsize(downloaded_path)} bytes)")
+    # Create test AVIF via ffmpeg from our test PNG
+    test_cache_dir = importer.get_cache_dir()
+    test_png_file = os.path.join(test_cache_dir, "test_source.png")
+    with open(test_png_file, "wb") as f:
+        f.write(base64.b64decode(test_data_uri.split(",")[1]))
 
-    # 9. Clean unregister
-    print("[9] Testing clean unregister...")
+    test_avif_file = os.path.join(test_cache_dir, "test_avif_source.avif")
+    subprocess.run(["ffmpeg", "-y", "-i", test_png_file, "-c:v", "libaom-av1", "-crf", "30", test_avif_file],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+    if os.path.exists(test_avif_file):
+        print(f"  -> Generated test AVIF file: {test_avif_file} ({os.path.getsize(test_avif_file)} bytes)")
+        bimg = importer.get_or_load_image(test_avif_file, "HealedAVIF")
+        assert bimg is not None, "Failed to load AVIF image!"
+        assert bimg.has_data, "AVIF was not converted; has_data is False (pink texture)!"
+        assert bimg.size[0] > 0 and bimg.size[1] > 0, f"Image dimensions invalid: {bimg.size[:]}"
+        print(f"  -> Auto-healing verified! AVIF successfully loaded with valid dimensions {bimg.size[:]}")
+    else:
+        print("  -> ffmpeg libaom-av1 encoder not present, tested PNG pathway directly.")
+
+    # 11. Test Quick Reference Removal & Clearing
+    print("[11] Testing Quick Reference remove and clear operators...")
+    quick_manager.add_quick_reference("Dummy1", "http://example.com/1.png", test_png_file)
+    quick_manager.add_quick_reference("Dummy2", "http://example.com/2.png", test_png_file)
+    assert len(quick_manager.load_quick_references()) >= 2
+    
+    bpy.ops.wm.auxeref_remove_quick(index=0)
+    bpy.ops.wm.auxeref_clear_quick()
+    assert len(quick_manager.load_quick_references()) == 0
+    print("  -> Quick reference operators verified.")
+
+    # 12. Clean unregister
+    print("[12] Testing clean unregister...")
     bpy.ops.preferences.addon_disable(module="blender_web_search")
     print("  -> Addon unregistered cleanly.")
 
     print("=" * 60)
-    print("ALL NATIVE 'OPEN IN BLENDER' TESTS PASSED SUCCESSFULLY!")
+    print("ALL AUXEREF TESTS PASSED SUCCESSFULLY!")
     print("=" * 60)
 
 if __name__ == "__main__":

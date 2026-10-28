@@ -1,4 +1,4 @@
-"""Automatic Native Messaging Host and Browser Extension setup for Blender Image Bridge."""
+"""Automatic Native Messaging Host and Browser Extension setup for AuxeRef."""
 import os
 import stat
 import json
@@ -12,7 +12,7 @@ RECEIVER_SCRIPT_PATH = os.path.expanduser("~/.local/bin/blender_image_receiver.p
 INBOX_DIR = "/tmp/blender_open_inbox"
 
 RECEIVER_SCRIPT_CONTENT = """#!/usr/bin/env python3
-\"\"\"Native Messaging Host connecting Chrome/Firefox to Blender without any network ports or web servers.\"\"\"
+\"\"\"AuxeRef Native Messaging Host connecting Chrome/Firefox to Blender without any network ports.\"\"\"
 import sys
 import json
 import struct
@@ -68,7 +68,7 @@ def ensure_native_host_installed():
     # 2. Chrome / Thorium / Chromium native messaging manifest
     chrome_manifest = {
         "name": NATIVE_HOST_NAME,
-        "description": "Blender Image Bridge Native Host",
+        "description": "AuxeRef Image Bridge Native Host",
         "path": RECEIVER_SCRIPT_PATH,
         "type": "stdio",
         "allowed_origins": [
@@ -94,10 +94,11 @@ def ensure_native_host_installed():
     # 3. Firefox native messaging manifest
     firefox_manifest = {
         "name": NATIVE_HOST_NAME,
-        "description": "Blender Image Bridge Native Host",
+        "description": "AuxeRef Image Bridge Native Host",
         "path": RECEIVER_SCRIPT_PATH,
         "type": "stdio",
         "allowed_extensions": [
+            "auxeref@auxerov.local",
             "add-to-blender@auxerov.local"
         ]
     }
@@ -141,10 +142,8 @@ def detect_default_browser() -> dict:
 
 def auto_install_all(restart_browser: bool = False) -> tuple:
     """Configures browser flags and external extension registration so extension is loaded automatically."""
-    # 1. Native messaging
     ensure_native_host_installed()
 
-    # 2. Locate extension directory
     base_dir = os.path.dirname(os.path.abspath(__file__))
     ext_dir = os.path.join(base_dir, "extension_chrome")
     if not os.path.exists(ext_dir):
@@ -154,7 +153,6 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
     if not os.path.exists(crx_path):
         crx_path = "/home/auxerov/blender-image-search/extension.crx"
 
-    # 3. Add --load-extension flag to browser flags configuration files
     flags_line = f"--load-extension={ext_dir}"
     for flags_file in [
         os.path.expanduser("~/.config/thorium-flags.conf"),
@@ -176,7 +174,6 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
         except Exception:
             pass
 
-    # 4. External Extensions JSON registration
     json_payload = {
         "external_crx": crx_path,
         "external_version": "2.0.0"
@@ -197,17 +194,15 @@ def auto_install_all(restart_browser: bool = False) -> tuple:
 
     detected = detect_default_browser()
 
-    # 5. Restart browser if requested
     if restart_browser:
         raw_cmd = detected.get("raw", "").replace(".desktop", "").strip()
         binary = raw_cmd if raw_cmd else "thorium-browser"
         try:
-            # Gracefully signal running browser so session & tabs are saved
             subprocess.run(["pkill", "-TERM", "-f", "thorium|chrome|chromium"], check=False)
             time.sleep(1.0)
             subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True, f"Extension installed! {detected['name']} restarted with 'Open in Blender' active."
+            return True, f"AuxeRef installed! {detected['name']} restarted."
         except Exception as e:
-            return True, f"Extension configured! Please restart {detected['name']} to activate."
+            return True, f"AuxeRef configured! Please restart {detected['name']}."
 
-    return True, f"Extension installed automatically for {detected['name']}!"
+    return True, f"AuxeRef installed automatically for {detected['name']}!"
